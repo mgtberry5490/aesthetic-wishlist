@@ -9,7 +9,7 @@ The first version is intentionally simple: it runs fully in the browser, stores 
 - Add wishlist items with:
   - product URL
   - auto-filled item name when available
-  - auto-filled image URL when available
+  - optional image URL, auto-filled when available
   - notes
   - status
   - automatic date added
@@ -20,7 +20,11 @@ The first version is intentionally simple: it runs fully in the browser, stores 
   - `Bought`
   - `No longer want`
 - Remove items from your personal list.
+- Edit saved item names, links, photos, notes, and statuses without changing their original date added.
+- Use the three-dot menu on a card to copy its product link, edit it, change its status, or remove it.
 - Copy a read-only family share link.
+- Export the full list as a standalone HTML file to send or keep as a backup.
+- Import an exported HTML file to add missing items without replacing existing items.
 - Family can click **Buy / view item** to open the original product page.
 - Shared links exclude items marked `No longer want`.
 - Preview the wishlist card live before saving it.\n- Open the compact **How it works** modal from the add-item form.
@@ -91,6 +95,20 @@ npm run build
 
 Both commands passed after the initial MVP implementation.
 
+Export/import checks can also be run with `npm test`.
+
+## HTML export and import
+
+Use **Export HTML** in the Family mode panel to download a readable copy of your
+entire list, including items marked `No longer want`. Send the file as an attachment;
+recipients can open it in a browser and follow the product links without running
+the app. Photos still need an internet connection.
+
+Use **Import HTML** in the app to choose a previously exported file. Missing items
+are added with their original notes, dates, and statuses. Items with IDs already
+on your list are skipped, preserving your local edits. Importing the same file
+again will not add duplicates. Only this app's exported HTML format is supported.
+
 ## Important notes for future AI sessions
 
 This project includes `AGENTS.md` and `CLAUDE.md` with a Next.js-specific rule:
@@ -118,6 +136,7 @@ Also note:
 - `src/app/api/preview/route.ts` fetches pasted product pages server-side and reads Open Graph / Twitter metadata for title and image.
 - External product images are rendered as CSS background images so the MVP does not need Next image remote host configuration yet.
 - Auto-preview will not work for every store. Some stores block server fetches or do not publish preview metadata, so the form still allows manual title and image edits.
+- If a Sephora, Nordstrom, or Nordstrom Rack product preview is unavailable, the app suggests an editable name from the product link. Photos are optional, so blocked previews never prevent saving an item.
 - The share link currently stores wishlist data in the URL. That is good for an MVP, but not ideal for long-term private sharing.
 - Do not put sensitive information in wishlist notes while share links are URL-encoded this way.
 
@@ -184,5 +203,3 @@ message
 ```
 
 Reservations should be hidden from the wishlist owner by default so gifts can stay a surprise.
-
-

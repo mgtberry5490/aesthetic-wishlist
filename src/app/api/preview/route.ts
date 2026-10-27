@@ -1,6 +1,9 @@
+import { getProductTitleFromUrl } from "@/lib/product-preview";
+
 type PreviewResponse = {
   title: string;
   imageUrl: string;
+  message?: string;
 };
 
 const textDecoder = new TextDecoder();
@@ -77,6 +80,23 @@ export async function GET(request: Request) {
     return Response.json({ error: "Add a valid http or https product link." }, { status: 400 });
   }
 
+  const suggestedTitle = getProductTitleFromUrl(productUrl);
+  const unavailablePreview = (error: string, status: number) => {
+    if (suggestedTitle) {
+      return Response.json({
+        title: suggestedTitle,
+        imageUrl: "",
+        message:
+          "The store preview is unavailable. I suggested a name from the link; you can edit it, add your own photo link, or save without a photo.",
+      });
+    }
+
+    return Response.json(
+      { error: `${error} Enter an item name below; a photo is optional.` },
+      { status },
+    );
+  };
+
   try {
     const response = await fetch(productUrl, {
       headers: {
@@ -87,9 +107,9 @@ export async function GET(request: Request) {
     });
 
     if (!response.ok) {
-      return Response.json(
-        { error: `The store returned ${response.status}, so I could not preview it.` },
-        { status: 502 },
+      return unavailablePreview(
+        `The store returned ${response.status}, so I could not preview it.`,
+        502,
       );
     }
 
@@ -100,22 +120,28 @@ export async function GET(request: Request) {
     };
 
     if (!preview.title && !preview.imageUrl) {
-      return Response.json(
-        { error: "I could not find a title or image on that page." },
-        { status: 404 },
+      return unavailablePreview(
+        "I could not find a title or image on that page.",
+        404,
       );
+    }
+
+    if (!preview.title) {
+      preview.title = suggestedTitle;
+    }
+
+    if (!preview.imageUrl) {
+      preview.message =
+        "Found the item name, but no photo. You can add your own photo link or save without one.";
     }
 
     return Response.json(preview);
   } catch (error) {
-    return Response.json(
-      {
-        error:
-          error instanceof Error
-            ? `I could not reach that product page: ${error.message}`
-            : "I could not reach that product page.",
-      },
-      { status: 502 },
+    return unavailablePreview(
+      error instanceof Error
+        ? `I could not reach that product page: ${error.message}`
+        : "I could not reach that product page.",
+      502,
     );
   }
 }

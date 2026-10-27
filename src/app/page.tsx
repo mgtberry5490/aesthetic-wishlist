@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ChangeEvent,
   FormEvent,
   useEffect,
   useMemo,
@@ -9,22 +10,19 @@ import {
   useSyncExternalStore,
 } from "react";
 import Link from "next/link";
-
-type WishStatus = "Thinking about it" | "Still want" | "Bought" | "No longer want";
-
-type WishlistItem = {
-  id: string;
-  title: string;
-  productUrl: string;
-  imageUrl: string;
-  notes: string;
-  status: WishStatus;
-  addedAt: string;
-};
+import {
+  buildWishlistHtml,
+  mergeWishlistItems,
+  parseWishlistData,
+  statusOptions,
+  type WishlistItem,
+  type WishStatus,
+} from "@/lib/wishlist-html";
 
 type LinkPreview = {
   title: string;
   imageUrl: string;
+  message?: string;
 };
 
 type PreviewState = {
@@ -65,13 +63,6 @@ const starterItems: WishlistItem[] = [
     status: "Thinking about it",
     addedAt: "2026-07-13T12:00:00.000Z",
   },
-];
-
-const statusOptions: WishStatus[] = [
-  "Thinking about it",
-  "Still want",
-  "Bought",
-  "No longer want",
 ];
 
 const emptyForm = {
@@ -191,13 +182,22 @@ export default function Home() {
   );
   const [draftItems, setDraftItems] = useState<WishlistItem[] | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [openItemMenuId, setOpenItemMenuId] = useState<string | null>(null);
+  const [itemActionMessage, setItemActionMessage] = useState("");
   const shareItems = useMemo(() => decodeShareItems(shareSnapshot), [shareSnapshot]);
   const [shareCopied, setShareCopied] = useState(false);
   const [previewState, setPreviewState] = useState<PreviewState>(idlePreviewState);
   const [isHowItWorksOpen, setIsHowItWorksOpen] = useState(false);
+  const [fileMessage, setFileMessage] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const itemMenuRef = useRef<HTMLDivElement>(null);
   const previewTimerRef = useRef<number | null>(null);
   const previewRequestIdRef = useRef(0);
   const items = draftItems ?? savedItems;
+  const editingItem = items.find((item) => item.id === editingItemId);
   const isBrowserReady = browserReadySnapshot === "ready";
 
   useEffect(() => {
@@ -208,6 +208,31 @@ export default function Home() {
     window.localStorage.setItem(storageKey, JSON.stringify(items));
   }, [isBrowserReady, items, shareItems]);
 
+  useEffect(() => {
+    if (openItemMenuId === null) {
+      return;
+    }
+
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (event.target instanceof Node && !itemMenuRef.current?.contains(event.target)) {
+        setOpenItemMenuId(null);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        itemMenuRef.current?.querySelector("button")?.focus();
+        setOpenItemMenuId(null);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [openItemMenuId]);
+
   const visibleItems = shareItems ?? items;
   const shareLink = useMemo(() => {
     if (typeof window === "undefined") {
@@ -217,22 +242,74 @@ export default function Home() {
     return `${window.location.origin}${window.location.pathname}?share=${encodeShareItems(items)}`;
   }, [items]);
 
+  const resetForm = () => {
+    previewRequestIdRef.current += 1;
+
+    if (previewTimerRef.current) {
+      window.clearTimeout(previewTimerRef.current);
+    }
+
+    setForm(emptyForm);
+    setEditingItemId(null);
+    setPreviewState(idlePreviewState);
+  };
+
+  const editItem = (item: WishlistItem) => {
+    setOpenItemMenuId(null);
+    resetForm();
+    setEditingItemId(item.id);
+    setForm({
+      title: item.title,
+      productUrl: item.productUrl,
+      imageUrl: item.imageUrl,
+      notes: item.notes,
+      status: item.status,
+    });
+    formRef.current?.querySelector<HTMLInputElement>('input[name="title"]')?.focus({
+      preventScroll: true,
+    });
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const copyItemLink = async (item: WishlistItem) => {
+    setOpenItemMenuId(null);
+
+    try {
+      await navigator.clipboard.writeText(item.productUrl);
+      setItemActionMessage(`Link copied for ${item.title}.`);
+    } catch {
+      setItemActionMessage("Could not copy the link. Please try again.");
+    }
+  };
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const newItem: WishlistItem = {
-      id: crypto.randomUUID(),
+    const details = {
       title: form.title.trim(),
       productUrl: form.productUrl.trim(),
       imageUrl: form.imageUrl.trim(),
       notes: form.notes.trim(),
       status: form.status,
-      addedAt: new Date().toISOString(),
     };
 
-    setDraftItems((currentItems) => [newItem, ...(currentItems ?? items)]);
-    setForm(emptyForm);
-    setPreviewState(idlePreviewState);
+    if (editingItemId !== null) {
+      setDraftItems((currentItems) =>
+        (currentItems ?? items).map((item) =>
+          item.id === editingItemId ? { ...item, ...details } : item,
+        ),
+      );
+    } else {
+      const newItem: WishlistItem = {
+        ...details,
+        id: crypto.randomUUID(),
+        addedAt: new Date().toISOString(),
+      };
+
+      setDraftItems((currentItems) => [newItem, ...(currentItems ?? items)]);
+    }
+
+    resetForm();
   };
 
   const fetchLinkPreview = async (productUrl: string, requestId: number) => {
@@ -261,7 +338,7 @@ export default function Home() {
       }));
       setPreviewState({
         status: "success",
-        message: "Auto-filled what I could find. You can still edit it.",
+        message: preview.message ?? "Auto-filled what I could find. You can still edit it.",
       });
     } catch (error) {
       if (requestId !== previewRequestIdRef.current) {
@@ -314,19 +391,96 @@ export default function Home() {
   };
 
   const updateStatus = (id: string, status: WishStatus) => {
+    setOpenItemMenuId(null);
     setDraftItems((currentItems) =>
       (currentItems ?? items).map((item) => (item.id === id ? { ...item, status } : item)),
     );
+
+    if (id === editingItemId) {
+      setForm((currentForm) => ({ ...currentForm, status }));
+    }
   };
 
   const removeItem = (id: string) => {
+    setOpenItemMenuId(null);
     setDraftItems((currentItems) => (currentItems ?? items).filter((item) => item.id !== id));
+
+    if (id === editingItemId) {
+      resetForm();
+    }
   };
 
   const copyShareLink = async () => {
     await navigator.clipboard.writeText(shareLink);
     setShareCopied(true);
     window.setTimeout(() => setShareCopied(false), 1800);
+  };
+
+  const exportHtml = () => {
+    try {
+      const blob = new Blob([buildWishlistHtml(items)], {
+        type: "text/html;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `wishlist-${new Date().toISOString().slice(0, 10)}.html`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setFileMessage("HTML exported with all items, including those marked No longer want.");
+    } catch {
+      setFileMessage("Could not export your list. Please try again.");
+    }
+  };
+
+  const importHtml = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    setIsImporting(true);
+    setFileMessage("");
+
+    try {
+      const html = await file.text();
+      // Parse the file without loading its HTML or executing its scripts.
+      const template = document.createElement("template");
+      template.innerHTML = html;
+      const data = template.content.querySelector(
+        'script#aesthetic-wishlist-data[type="application/json"]',
+      )?.textContent;
+
+      if (!data) {
+        throw new Error("Choose an HTML file exported from this wishlist app.");
+      }
+
+      const importedItems = parseWishlistData(data);
+      const currentItems = parseStoredWishlistItems(
+        window.localStorage.getItem(storageKey) ?? "",
+      );
+      const mergedItems = mergeWishlistItems(currentItems, importedItems);
+      const addedCount = mergedItems.length - currentItems.length;
+      const skippedCount = importedItems.length - addedCount;
+
+      window.localStorage.setItem(storageKey, JSON.stringify(mergedItems));
+      setDraftItems(mergedItems);
+      setFileMessage(
+        `Imported ${addedCount} ${addedCount === 1 ? "item" : "items"}. ${skippedCount} already on your list skipped.`,
+      );
+    } catch (error) {
+      setFileMessage(
+        error instanceof Error && !(error instanceof SyntaxError)
+          ? error.message
+          : "Could not read this wishlist file. Your list was not changed.",
+      );
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   return (
@@ -360,13 +514,48 @@ export default function Home() {
                 : "Copy a share link so family can browse and buy from your list."}
             </p>
             {!shareItems && (
-              <button
-                type="button"
-                onClick={copyShareLink}
-                className="mt-5 w-full rounded-full bg-[#172033] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#172033]/20 transition hover:-translate-y-0.5 hover:bg-[#284b78]"
-              >
-                {shareCopied ? "Copied link" : "Copy family share link"}
-              </button>
+              <div className="mt-5 grid gap-3">
+                <button
+                  type="button"
+                  onClick={copyShareLink}
+                  className="w-full rounded-full bg-[#172033] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#172033]/20 transition hover:-translate-y-0.5 hover:bg-[#284b78]"
+                >
+                  {shareCopied ? "Copied link" : "Copy family share link"}
+                </button>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={exportHtml}
+                    disabled={!isBrowserReady || isImporting}
+                    className="rounded-full border border-[#bdd3eb] bg-white px-4 py-3 text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] disabled:opacity-50"
+                  >
+                    Export HTML
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => importInputRef.current?.click()}
+                    disabled={!isBrowserReady || isImporting}
+                    className="rounded-full border border-[#bdd3eb] bg-white px-4 py-3 text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] disabled:opacity-50"
+                  >
+                    {isImporting ? "Importing..." : "Import HTML"}
+                  </button>
+                </div>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".html,.htm,text/html"
+                  aria-label="Import wishlist HTML file"
+                  onChange={importHtml}
+                  className="hidden"
+                />
+                <p className="text-xs leading-5 text-[#52677d]">
+                  Export all items as a file to send or keep. Import adds missing
+                  items without replacing your list.
+                </p>
+                <p role="status" className="text-sm leading-6 text-[#37618f]">
+                  {fileMessage}
+                </p>
+              </div>
             )}
           </div>
         </header>
@@ -374,13 +563,16 @@ export default function Home() {
         {!shareItems && (
           <section className="relative z-10 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
             <form
+              ref={formRef}
               onSubmit={handleSubmit}
               className="rounded-[2rem] border border-white/70 bg-[#f8fbff]/90 p-6 shadow-xl shadow-[#476587]/10"
             >
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#4f7fb5]">
-                Add a new find
+                {editingItem ? "Edit saved find" : "Add a new find"}
               </p>
-              <h2 className="mt-3 text-2xl font-semibold">Paste the thing you love</h2>
+              <h2 className="mt-3 text-2xl font-semibold">
+                {editingItem ? "Make it just right" : "Paste the thing you love"}
+              </h2>
               <div className="mt-6 grid gap-4">
                 <label className="grid gap-2 text-sm font-medium text-[#344b63]">
                   Product link
@@ -408,6 +600,7 @@ export default function Home() {
                   Item name
                   <input
                     required
+                    name="title"
                     value={form.title}
                     onChange={(event) => setForm({ ...form, title: event.target.value })}
                     placeholder="Auto-filled from the product link"
@@ -415,18 +608,21 @@ export default function Home() {
                   />
                 </label>
                 <label className="grid gap-2 text-sm font-medium text-[#344b63]">
-                  Image link
+                  Image link (optional)
                   <input
-                    required
                     type="url"
                     value={form.imageUrl}
                     onChange={(event) =>
                       setForm({ ...form, imageUrl: event.target.value })
                     }
-                    placeholder="Auto-filled when the store shares a preview image"
+                    placeholder="Paste a photo link, or leave this blank"
                     className="rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
                   />
                 </label>
+                <p className="text-xs leading-5 text-[#52677d]">
+                  Some stores do not allow automatic previews. You can still save
+                  the product link and item name without a photo.
+                </p>
                 <label className="grid gap-2 text-sm font-medium text-[#344b63]">
                   Notes
                   <textarea
@@ -456,8 +652,17 @@ export default function Home() {
                 type="submit"
                 className="mt-6 w-full rounded-full bg-[#5b8cc5] px-6 py-4 font-semibold text-white shadow-lg shadow-[#5b8cc5]/25 transition hover:-translate-y-0.5 hover:bg-[#4f7fb5]"
               >
-                Add to my wishlist
+                {editingItem ? "Save changes" : "Add to my wishlist"}
               </button>
+              {editingItem && (
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="mt-3 w-full rounded-full border border-[#bdd3eb] bg-white px-6 py-3 font-semibold text-[#344b63] transition hover:bg-[#e8f2ff]"
+                >
+                  Cancel editing
+                </button>
+              )}
             </form>
 
             <div className="rounded-[2rem] border border-white/70 bg-white/45 p-6 shadow-xl shadow-[#476587]/10">
@@ -489,7 +694,7 @@ export default function Home() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#5f83aa]">
-                        Added today
+                        {editingItem ? `Added ${formatDate(editingItem.addedAt)}` : "Added today"}
                       </p>
                       <h3 className="mt-2 text-xl font-semibold">
                         {form.title || "Item name preview"}
@@ -576,18 +781,85 @@ export default function Home() {
             )}
           </div>
 
+          <p role="status" className="text-sm leading-6 text-[#37618f]">
+            {itemActionMessage}
+          </p>
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {visibleItems.map((item) => (
               <article
                 key={item.id}
-                className="group overflow-hidden rounded-[2rem] border border-white/80 bg-[#f8fbff] shadow-xl shadow-[#476587]/10 transition hover:-translate-y-1"
+                className="group relative overflow-hidden rounded-[2rem] border border-white/80 bg-[#f8fbff] shadow-xl shadow-[#476587]/10 transition hover:-translate-y-1"
               >
+                {!shareItems && (
+                  <div
+                    ref={openItemMenuId === item.id ? itemMenuRef : undefined}
+                    className="absolute right-4 top-4 z-10"
+                  >
+                    <button
+                      type="button"
+                      aria-label={`Actions for ${item.title}`}
+                      aria-expanded={openItemMenuId === item.id}
+                      onClick={() =>
+                        setOpenItemMenuId((currentId) => currentId === item.id ? null : item.id)
+                      }
+                      className="flex h-10 w-10 items-center justify-center rounded-full border border-[#bdd3eb] bg-white/95 text-[#344b63] shadow-sm transition hover:bg-[#e8f2ff] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5b8cc5]"
+                    >
+                      <svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                        <circle cx="10" cy="4" r="1.75" />
+                        <circle cx="10" cy="10" r="1.75" />
+                        <circle cx="10" cy="16" r="1.75" />
+                      </svg>
+                    </button>
+                    {openItemMenuId === item.id && (
+                      <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-2xl border border-[#c9dcef] bg-white p-1 shadow-xl shadow-[#476587]/20">
+                        <button
+                          type="button"
+                          onClick={() => void copyItemLink(item)}
+                          className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] focus-visible:bg-[#e8f2ff]"
+                        >
+                          Copy link
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => editItem(item)}
+                          className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] focus-visible:bg-[#e8f2ff]"
+                        >
+                          Edit
+                        </button>
+                        <label className="grid gap-2 border-y border-[#e6f0fb] px-4 py-3 text-xs font-semibold text-[#5f83aa]">
+                          Status
+                          <select
+                            aria-label={`Status for ${item.title}`}
+                            value={item.status}
+                            onChange={(event) =>
+                              updateStatus(item.id, event.target.value as WishStatus)
+                            }
+                            className="w-full rounded-xl border border-[#bdd3eb] bg-white px-2 py-2 text-sm font-semibold text-[#344b63]"
+                          >
+                            {statusOptions.map((status) => (
+                              <option key={status}>{status}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => removeItem(item.id)}
+                          className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-[#8b4a58] transition hover:bg-[#f4dce3] focus-visible:bg-[#f4dce3]"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div
-                  className="h-72 bg-[#dcecff] bg-cover bg-center"
-                  style={{ backgroundImage: `url(${item.imageUrl})` }}
-                  role="img"
-                  aria-label={item.title}
-                />
+                  className="flex h-72 items-center justify-center bg-[#dcecff] bg-cover bg-center px-8 text-center text-sm font-semibold text-[#5f83aa]"
+                  style={item.imageUrl ? { backgroundImage: `url(${item.imageUrl})` } : undefined}
+                  role={item.imageUrl ? "img" : undefined}
+                  aria-label={item.imageUrl ? item.title : undefined}
+                >
+                  {!item.imageUrl && "No photo added"}
+                </div>
                 <div className="p-5">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -619,28 +891,6 @@ export default function Home() {
                     >
                       Buy / view item
                     </a>
-                    {!shareItems && (
-                      <>
-                        <select
-                          value={item.status}
-                          onChange={(event) =>
-                            updateStatus(item.id, event.target.value as WishStatus)
-                          }
-                          className="rounded-full border border-[#bdd3eb] bg-white px-4 py-3 text-sm font-semibold text-[#344b63]"
-                        >
-                          {statusOptions.map((status) => (
-                            <option key={status}>{status}</option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => removeItem(item.id)}
-                          className="rounded-full border border-[#bdd3eb] px-4 py-3 text-sm font-semibold text-[#8b4a58] transition hover:bg-[#f4dce3]"
-                        >
-                          Remove
-                        </button>
-                      </>
-                    )}
                   </div>
                 </div>
               </article>
@@ -651,5 +901,3 @@ export default function Home() {
     </main>
   );
 }
-
-
