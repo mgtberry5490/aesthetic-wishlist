@@ -21,6 +21,8 @@ The first version is intentionally simple: it runs fully in the browser, stores 
   - `No longer want`
 - Remove items from your personal list.
 - Edit saved item names, links, photos, notes, and statuses without changing their original date added.
+- Set a star priority: 1 star for `Just browsing`, 2 for `Would be nice`, or 3 for `Love this`.
+- See priorities on cards, the live preview, family share links, and HTML exports. Older items default to 1 star until you change them.
 - Use the three-dot menu on a card to copy its product link, edit it, change its status, or remove it.
 - Copy a read-only family share link.
 - Export the full list as a standalone HTML file to send or keep as a backup.
@@ -154,6 +156,7 @@ type WishlistItem = {
   imageUrl: string;
   notes: string;
   status: WishStatus;
+  priority?: 1 | 2 | 3;
   addedAt: string;
 };
 ```
@@ -165,8 +168,7 @@ type WishlistItem = {
 3. Add multiple lists, like Birthday, Holidays, Home, Books, and Clothes.
 4. Improve automatic link previews with price extraction and store-specific fallbacks.
 5. Add gift reservation so family can privately mark an item as claimed.
-6. Add priority tags like `love`, `maybe`, and `practical`.
-7. Add a browser extension or bookmarklet for one-click saving.
+6. Add a browser extension or bookmarklet for one-click saving.
 
 ## Backend idea for the next version
 

@@ -7,6 +7,18 @@ export const statusOptions = [
 
 export type WishStatus = (typeof statusOptions)[number];
 
+export const priorityOptions = [
+  { value: 1, label: "Just browsing" },
+  { value: 2, label: "Would be nice" },
+  { value: 3, label: "Love this" },
+] as const;
+
+export type WishPriority = (typeof priorityOptions)[number]["value"];
+
+export function getPriorityOption(priority?: WishPriority) {
+  return priorityOptions.find((option) => option.value === priority) ?? priorityOptions[0];
+}
+
 export type WishlistItem = {
   id: string;
   title: string;
@@ -14,6 +26,7 @@ export type WishlistItem = {
   imageUrl: string;
   notes: string;
   status: WishStatus;
+  priority?: WishPriority;
   addedAt: string;
 };
 
@@ -78,6 +91,7 @@ export function parseWishlistData(json: string): WishlistItem[] {
       typeof item.notes !== "string" ||
       !("status" in item) ||
       !statusOptions.some((status) => status === item.status) ||
+      ("priority" in item && !priorityOptions.some((option) => option.value === item.priority)) ||
       !("addedAt" in item) ||
       typeof item.addedAt !== "string" ||
       !Number.isFinite(new Date(item.addedAt).getTime())
@@ -94,6 +108,7 @@ export function parseWishlistData(json: string): WishlistItem[] {
       imageUrl: item.imageUrl,
       notes: item.notes,
       status: item.status as WishStatus,
+      ...("priority" in item ? { priority: item.priority as WishPriority } : {}),
       addedAt: item.addedAt,
     };
   });
@@ -121,6 +136,7 @@ export function buildWishlistHtml(items: WishlistItem[]) {
     items,
   }).replaceAll("<", "\\u003c");
   const cards = items.map((item) => {
+    const priority = getPriorityOption(item.priority);
     const productUrl = isWebUrl(item.productUrl) ? item.productUrl : "";
     const imageUrl = isWebUrl(item.imageUrl) ? item.imageUrl : "";
     const date = new Date(item.addedAt);
@@ -139,6 +155,7 @@ ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(item.title)}"
 <p class="date">Added ${escapeHtml(addedAt)}</p>
 <h2>${escapeHtml(item.title)}</h2>
 <p class="status">${escapeHtml(item.status)}</p>
+<p class="priority"><span aria-hidden="true">${"&#9733;".repeat(priority.value)}${"&#9734;".repeat(3 - priority.value)}</span><span class="sr-only">${priority.value} of 3 stars: </span> ${priority.label}</p>
 ${item.notes ? `<p class="notes">${escapeHtml(item.notes)}</p>` : ""}
 </div>
 </article>`;
@@ -169,6 +186,9 @@ img { display: block; width: 100%; height: 280px; object-fit: cover; background:
 .details { padding: 24px; }
 .date { color: #5f83aa; font-size: 13px; margin: 0; }
 .status { display: inline-block; border-radius: 20px; background: #e6f0fb; padding: 4px 12px; font-size: 13px; }
+.priority { color: #825a20; font-size: 13px; margin: 8px 0; }
+.priority > span:first-child { color: #b17a25; letter-spacing: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .notes { white-space: pre-wrap; overflow-wrap: anywhere; }
 .card-link { display: block; color: inherit; border-radius: 28px; text-decoration: none; }
 .card-link:hover article { box-shadow: 0 12px 30px #47658735; }

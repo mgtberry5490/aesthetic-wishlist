@@ -60,6 +60,38 @@ test("the entire exported card links to its product, with or without a photo", (
   }
 });
 
+test("all star priorities round-trip and appear on exported cards", () => {
+  for (const [priority, label] of [
+    [1, "Just browsing"],
+    [2, "Would be nice"],
+    [3, "Love this"],
+  ]) {
+    const prioritized = { ...item, priority };
+    const html = buildWishlistHtml([prioritized]);
+
+    assert.deepEqual(parseWishlistData(readExport(html)), [prioritized]);
+    assert.ok(html.includes(`${"&#9733;".repeat(priority)}${"&#9734;".repeat(3 - priority)}`));
+    assert.ok(html.includes(`${priority} of 3 stars: </span> ${label}`));
+  }
+});
+
+test("older exports without priority remain importable and display as Just browsing", () => {
+  const html = buildWishlistHtml([item]);
+
+  assert.deepEqual(parseWishlistData(readExport(html)), [item]);
+  assert.match(html, /1 of 3 stars: <\/span> Just browsing/);
+  assert.equal(helpers.getPriorityOption(undefined).value, 1);
+});
+
+test("import rejects invalid star priorities", () => {
+  for (const priority of [0, 4, -1, 1.5, "3", null, {}, []]) {
+    assert.throws(
+      () => parseWishlistData(dataFor([{ ...item, priority }])),
+      /invalid wishlist item/,
+    );
+  }
+});
+
 test("export escapes markup, attributes, and embedded JSON without losing text", () => {
   const malicious = {
     ...item,
@@ -110,8 +142,8 @@ test("import rejects unrelated, malformed, and unsupported files", () => {
 });
 
 test("merge preserves existing edits and skips duplicates on repeated imports", () => {
-  const existing = { ...item, notes: "My local edit", status: "Bought" };
-  const addition = { ...item, id: "gift-2" };
+  const existing = { ...item, notes: "My local edit", status: "Bought", priority: 3 };
+  const addition = { ...item, id: "gift-2", priority: 2 };
   const merged = mergeWishlistItems([existing], [item, addition, addition]);
 
   assert.deepEqual(merged, [addition, existing]);

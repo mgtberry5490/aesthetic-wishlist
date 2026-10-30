@@ -12,10 +12,13 @@ import {
 import Link from "next/link";
 import {
   buildWishlistHtml,
+  getPriorityOption,
   mergeWishlistItems,
   parseWishlistData,
+  priorityOptions,
   statusOptions,
   type WishlistItem,
+  type WishPriority,
   type WishStatus,
 } from "@/lib/wishlist-html";
 
@@ -71,6 +74,7 @@ const emptyForm = {
   imageUrl: "",
   notes: "",
   status: "Thinking about it" as WishStatus,
+  priority: 1 as WishPriority,
 };
 
 const idlePreviewState: PreviewState = {
@@ -158,6 +162,39 @@ function parseStoredWishlistItems(value: string) {
     console.warn("Could not load saved wishlist items.", error);
     return starterItems;
   }
+}
+
+function PriorityStars({ priority }: { priority: WishPriority }) {
+  return (
+    <span aria-hidden="true" className="flex gap-1">
+      {priorityOptions.map(({ value }) => (
+        <svg
+          key={value}
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill={value <= priority ? "currentColor" : "none"}
+          stroke="currentColor"
+          strokeWidth="1.5"
+          className="text-[#b17a25]"
+        >
+          <path d="m12 3 2.8 5.7 6.3.9-4.55 4.43 1.07 6.27L12 17.34l-5.62 2.96 1.07-6.27L2.9 9.6l6.3-.9L12 3Z" />
+        </svg>
+      ))}
+    </span>
+  );
+}
+
+function PriorityBadge({ priority }: { priority?: WishPriority }) {
+  const option = getPriorityOption(priority);
+
+  return (
+    <p className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-full bg-[#fff8e8] px-3 py-2 text-xs font-semibold text-[#825a20]">
+      <PriorityStars priority={option.value} />
+      <span className="sr-only">{option.value} of 3 stars: </span>
+      <span>{option.label}</span>
+    </p>
+  );
 }
 
 export default function Home() {
@@ -264,6 +301,7 @@ export default function Home() {
       imageUrl: item.imageUrl,
       notes: item.notes,
       status: item.status,
+      priority: getPriorityOption(item.priority).value,
     });
     formRef.current?.querySelector<HTMLInputElement>('input[name="title"]')?.focus({
       preventScroll: true,
@@ -291,6 +329,7 @@ export default function Home() {
       imageUrl: form.imageUrl.trim(),
       notes: form.notes.trim(),
       status: form.status,
+      priority: form.priority,
     };
 
     if (editingItemId !== null) {
@@ -647,6 +686,30 @@ export default function Home() {
                     ))}
                   </select>
                 </label>
+                <fieldset>
+                  <legend className="text-sm font-medium text-[#344b63]">
+                    How much do you love it?
+                  </legend>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                    {priorityOptions.map((option) => (
+                      <label key={option.value} className="cursor-pointer">
+                        <input
+                          type="radio"
+                          name="priority"
+                          value={option.value}
+                          checked={form.priority === option.value}
+                          onChange={() => setForm({ ...form, priority: option.value })}
+                          aria-label={`${option.value} of 3 stars: ${option.label}`}
+                          className="peer sr-only"
+                        />
+                        <span className="flex h-full flex-col items-center justify-center gap-2 rounded-2xl border border-[#c9dcef] bg-white px-3 py-3 text-center text-xs font-semibold text-[#52677d] transition hover:bg-[#fff8e8] peer-checked:border-[#b17a25] peer-checked:bg-[#fff8e8] peer-checked:text-[#825a20] peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[#5b8cc5]">
+                          <PriorityStars priority={option.value} />
+                          {option.label}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
               </div>
               <button
                 type="submit"
@@ -707,6 +770,7 @@ export default function Home() {
                       {form.status}
                     </span>
                   </div>
+                  <PriorityBadge priority={form.priority} />
                   <p className="mt-4 rounded-2xl bg-white/70 p-4 text-sm leading-6 text-[#52677d]">
                     {form.notes || "Notes like size, color, or why you love it will show here."}
                   </p>
@@ -876,6 +940,7 @@ export default function Home() {
                     </span>
                   </div>
 
+                  <PriorityBadge priority={item.priority} />
                   {item.notes && (
                     <p className="mt-4 rounded-2xl bg-white/70 p-4 text-sm leading-6 text-[#52677d]">
                       {item.notes}
