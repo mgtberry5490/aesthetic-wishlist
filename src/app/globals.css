@@ -17,6 +17,58 @@ body {
   color: var(--foreground);
 }
 
+.wishlist-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.wishlist-card-image {
+  height: 18rem;
+}
+
+@media (min-width: 640px) {
+  .wishlist-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .wishlist-grid[data-card-columns="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .wishlist-grid[data-card-columns="4"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .wishlist-grid[data-card-columns="6"] {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .wishlist-grid[data-card-columns="8"] {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+
+  .wishlist-grid[data-card-columns="2"] .wishlist-card-image {
+    height: 18rem;
+  }
+
+  .wishlist-grid[data-card-columns="4"] .wishlist-card-image {
+    height: 14rem;
+  }
+
+  .wishlist-grid[data-card-columns="6"] .wishlist-card-image {
+    height: 11rem;
+  }
+
+  .wishlist-grid[data-card-columns="8"] .wishlist-card-image {
+    height: 9rem;
+  }
+}
+
+.hero-disclosure[open] .hero-disclosure-icon {
+  transform: rotate(180deg);
+}
+
 button,
 a,
 input,
@@ -25,3 +77,81 @@ textarea {
   font: inherit;
 }
 
+main[data-accent] .theme-accent-bg {
+  background-color: var(--theme-accent) !important;
+}
+
+main[data-accent] .theme-accent-bg:hover {
+  background-color: color-mix(in srgb, var(--theme-accent) 82%, #172033) !important;
+}
+
+main[data-accent] .theme-accent-text {
+  color: var(--theme-accent) !important;
+}
+
+main[data-accent] .theme-accent-border {
+  border-color: var(--theme-accent) !important;
+}
+
+main[data-accent] .theme-accent-field:focus {
+  border-color: var(--theme-accent) !important;
+}
+
+main[data-color-mode="dark"] .theme-accent-text {
+  color: var(--theme-accent) !important;
+}
+
+main[data-color-mode="dark"] {
+  background-color: #111a26 !important;
+  color: #e7edf5;
+}
+
+main[data-color-mode="dark"] .theme-surface {
+  background-color: #1d2938 !important;
+  border-color: #34475b !important;
+}
+
+main[data-color-mode="dark"] :is(h1, h2, h3, p, label, legend, summary, span:not([class~="text-white"])) {
+  color: #d3deea !important;
+}
+
+main[data-color-mode="dark"] .theme-field {
+  background-color: #111a26 !important;
+  border-color: #40546b !important;
+  color: #edf3fa !important;
+}
+
+main[data-color-mode="dark"] .theme-field::placeholder {
+  color: #91a1b4;
+}
+
+main[data-color-mode="dark"] .theme-image-fallback {
+  background-color: #263548 !important;
+  color: #b6c8dc !important;
+}
+
+main[data-color-mode="dark"] .theme-priority {
+  background-color: #263548 !important;
+  border-color: #40546b !important;
+  color: #d3deea !important;
+}
+
+main[data-color-mode="dark"] details {
+  border-color: #34475b;
+}
+
+main[data-color-mode="dark"] .theme-control {
+  background-color: #263548 !important;
+  border-color: #40546b !important;
+  color: #d3deea !important;
+}
+
+main[data-color-mode="dark"] .theme-control[aria-pressed="true"] {
+  background-color: var(--theme-accent) !important;
+  border-color: var(--theme-accent) !important;
+  color: #ffffff !important;
+}
+
+main[data-color-mode="dark"] .theme-inverse {
+  color: #ffffff !important;
+}

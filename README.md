@@ -1,6 +1,6 @@
-# Aesthetic Wishlist
+# Wishful
 
-A cozy wishlist web app for saving things you find online, seeing them later with photos and dates, and sharing a live birthday list with family.
+A family-friendly wishlist app for saving things you find online, seeing them later with photos and dates, and sharing live lists.
 
 Lists can stay local in the browser or sync to an account through Supabase.
 
@@ -25,12 +25,19 @@ Lists can stay local in the browser or sync to an account through Supabase.
 - See priorities on cards, the live preview, and family share links. Older items default to 1 star until you change them.
 - Use the three-dot menu on a card to copy its product link, edit it, change its status, or remove it.
 - Sign in with an email and password to sync a wishlist across devices. The session is remembered on the current device until sign-out.
+- Open the settings gear while signed in to change the theme or accent color and sign out.
+- Choose 2, 4, 6, or 8 wishlist cards across on wide screens; the layout adapts on smaller screens.
 - Copy a live family link that reflects list changes and guest gift reservations.
 - Let guests mark an item as bought without signing in or identifying themselves. The signed-in owner dashboard does not show reservations.
 - Import a previously exported HTML file to add missing items without replacing existing items.
 - Family can click **Buy / view item** to open the original product page or mark the gift as bought.
 - Shared links exclude items marked `No longer want`.
-- Preview the wishlist card live before saving it.\n- Open the compact **How it works** modal from the add-item form.
+- Preview the wishlist card live before saving it.
+- Open the compact **How it works** modal from the add-item form.
+- Switch between light and dark appearance, and choose a saved accent color from Settings while signed in.
+- Use the simplified **My list / Add a find** navigation on mobile; the live
+  preview stays hidden on small screens to keep the form focused.
+- Collapse or expand the introduction beneath **Good finds. Shared joy.**
 
 ## Vibe and product direction
 
@@ -65,6 +72,9 @@ src/app/
   globals.css   Global Tailwind import and base styles
   layout.tsx    Root layout and metadata
   page.tsx      Main wishlist app UI and client-side state
+  settings/page.tsx  Signed-in account, theme, and accent settings
+src/lib/
+  appearance.ts  Shared saved appearance preferences
 ```
 
 ## Getting started

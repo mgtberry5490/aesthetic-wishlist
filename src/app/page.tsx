@@ -20,6 +20,21 @@ import {
   type WishPriority,
   type WishStatus,
 } from "@/lib/wishlist-html";
+import {
+  accentOptions,
+  getAppearanceSnapshot,
+  getServerAppearanceSnapshot,
+  parseAppearance,
+  saveAppearance,
+  subscribeToAppearance,
+  type AccentName,
+  type ThemeMode,
+} from "@/lib/appearance";
+import {
+  getGridColumnsSnapshot,
+  getServerGridColumnsSnapshot,
+  subscribeToGridColumns,
+} from "@/lib/display-preferences";
 import { getSupabaseClient } from "@/lib/supabase";
 import type { Session } from "@supabase/supabase-js";
 
@@ -35,7 +50,6 @@ type PreviewState = {
 };
 
 const storageKey = "aesthetic-wishlist-items";
-
 const starterItems: WishlistItem[] = [
   {
     id: "starter-velvet-bag",
@@ -251,6 +265,17 @@ export default function Home() {
     getBrowserReadySnapshot,
     getServerSnapshot,
   );
+  const appearanceSnapshot = useSyncExternalStore(
+    subscribeToAppearance,
+    getAppearanceSnapshot,
+    getServerAppearanceSnapshot,
+  );
+  const gridColumnsSnapshot = useSyncExternalStore(
+    subscribeToGridColumns,
+    getGridColumnsSnapshot,
+    getServerGridColumnsSnapshot,
+  );
+  const { mode: themeMode, accent: themeAccent } = parseAppearance(appearanceSnapshot);
   const savedItems = useMemo(
     () => parseStoredWishlistItems(storedWishlistSnapshot),
     [storedWishlistSnapshot],
@@ -269,8 +294,10 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [authMode, setAuthMode] = useState<"sign_in" | "sign_up">("sign_in");
   const [accountMessage, setAccountMessage] = useState("");
+  const [appearanceMessage, setAppearanceMessage] = useState("");
   const [isSendingSignIn, setIsSendingSignIn] = useState(false);
   const [isReserving, setIsReserving] = useState<string | null>(null);
+  const [mobileTab, setMobileTab] = useState<"list" | "add">("list");
   const [form, setForm] = useState(emptyForm);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [openItemMenuId, setOpenItemMenuId] = useState<string | null>(null);
@@ -301,6 +328,21 @@ export default function Home() {
   );
   const editingItem = items.find((item) => item.id === editingItemId);
   const isBrowserReady = browserReadySnapshot === "ready";
+  const selectedAccent =
+    accentOptions.find((option) => option.value === themeAccent) ?? accentOptions[0];
+
+  const updateAppearance = (mode: ThemeMode, accent: AccentName) => {
+    try {
+      saveAppearance(mode, accent);
+      setAppearanceMessage("");
+    } catch (error) {
+      setAppearanceMessage(
+        error instanceof Error
+          ? `Could not save your appearance preference: ${error.message}`
+          : "Could not save your appearance preference.",
+      );
+    }
+  };
 
   useEffect(() => {
     if (!supabase) {
@@ -656,6 +698,7 @@ export default function Home() {
     }
 
     resetForm();
+    setMobileTab("list");
   };
 
   const fetchLinkPreview = async (productUrl: string, requestId: number) => {
@@ -822,24 +865,6 @@ export default function Home() {
       );
     } finally {
       setIsSendingSignIn(false);
-    }
-  };
-
-  const signOut = async () => {
-    if (!supabase) {
-      return;
-    }
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        setAccountMessage(`Could not sign out: ${error.message}`);
-      } else {
-        setAccountMessage("You are signed out.");
-      }
-    } catch (error) {
-      setAccountMessage(
-        error instanceof Error ? `Could not sign out: ${error.message}` : "Could not sign out.",
-      );
     }
   };
 
@@ -1017,25 +1042,50 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[#eef6ff] text-[#172033]">
+    <main
+      data-color-mode={themeMode}
+      data-accent={themeAccent}
+      style={{ "--theme-accent": selectedAccent.color } as React.CSSProperties}
+      className="min-h-screen overflow-hidden bg-[#eef6ff] text-[#172033]"
+    >
       <section className="relative mx-auto flex w-full max-w-7xl flex-col gap-10 px-5 py-8 sm:px-8 lg:px-12">
         <div className="absolute left-1/2 top-0 -z-0 h-80 w-80 -translate-x-1/2 rounded-full bg-[#bcdcff] blur-3xl opacity-50" />
         <div className="absolute right-8 top-52 -z-0 h-72 w-72 rounded-full bg-[#d7e8ff] blur-3xl opacity-60" />
 
-        <header className="relative z-10 grid gap-6 rounded-[2rem] border border-white/70 bg-white/55 p-6 shadow-2xl shadow-[#476587]/10 backdrop-blur md:grid-cols-[1.4fr_0.6fr] md:p-8">
+        <header className="theme-surface relative z-10 grid gap-6 rounded-[2rem] border border-white/70 bg-white/55 p-6 shadow-2xl shadow-[#476587]/10 backdrop-blur md:grid-cols-[1.4fr_0.6fr] md:p-8">
           <div>
-            <p className="mb-3 text-sm font-semibold uppercase tracking-[0.35em] text-[#4f7fb5]">
-              Birthday wish garden
+            <p className="theme-accent-text mb-3 text-sm font-semibold uppercase tracking-[0.35em] text-[#4f7fb5]">
+              Wishful · shared wish lists
             </p>
-            <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-[#101c2f] sm:text-6xl">
-              Save pretty finds now, decide what you love later.
-            </h1>
-            <p className="mt-5 max-w-2xl text-lg leading-8 text-[#52677d]">
-              Add links, photos, notes, and the day you saved each idea. When
-              family asks what to get you, send them a live list that updates as gifts are bought.
-            </p>
+            <details open className="hero-disclosure max-w-3xl">
+              <summary className="flex cursor-pointer list-none items-center gap-3 rounded-xl outline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#5b8cc5] [&::-webkit-details-marker]:hidden">
+                <span
+                  role="heading"
+                  aria-level={1}
+                  className="text-4xl font-semibold tracking-tight text-[#101c2f] sm:text-6xl"
+                >
+                  Good finds. Shared joy.
+                </span>
+                <svg
+                  aria-hidden="true"
+                  className="hero-disclosure-icon mt-2 h-6 w-6 shrink-0 text-[#5f83aa] transition-transform"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </summary>
+              <p className="mt-5 max-w-2xl text-lg leading-8 text-[#52677d]">
+                Add links, photos, notes, and the day you saved each idea. When
+                family asks what to get you, send them a live list that updates as gifts are bought.
+              </p>
+            </details>
             {!isSharedView && (
-              <div className="mt-6 rounded-[1.5rem] border border-white/80 bg-[#f8fbff]/85 p-5 shadow-sm shadow-[#476587]/10">
+              <div className="theme-surface mt-6 rounded-[1.5rem] border border-white/80 bg-[#f8fbff]/85 p-5 shadow-sm shadow-[#476587]/10">
                 {!supabase ? (
                   <p className="text-sm leading-6 text-[#52677d]">
                     Account sync is not configured yet. Add the Supabase URL and
@@ -1049,13 +1099,6 @@ export default function Home() {
                     <p className="text-sm text-[#52677d]">
                       Signed in as <span className="font-semibold">{session.user.email}</span>
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => void signOut()}
-                      className="rounded-full border border-[#bdd3eb] bg-white px-4 py-2 text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff]"
-                    >
-                      Sign out
-                    </button>
                   </div>
                 ) : (
                   <>
@@ -1082,7 +1125,7 @@ export default function Home() {
                         value={email}
                         onChange={(event) => setEmail(event.target.value)}
                         placeholder="you@example.com"
-                        className="rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 font-normal outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
+                        className="theme-field theme-accent-field rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 font-normal outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
                       />
                     </label>
                     <label className="grid gap-2 text-sm font-semibold text-[#344b63]">
@@ -1095,13 +1138,13 @@ export default function Home() {
                         value={password}
                         onChange={(event) => setPassword(event.target.value)}
                         placeholder="At least 8 characters"
-                        className="rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 font-normal outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
+                        className="theme-field theme-accent-field rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 font-normal outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
                       />
                     </label>
                     <button
                       type="submit"
                       disabled={isSendingSignIn}
-                      className="rounded-full bg-[#5b8cc5] px-5 py-3 text-sm font-semibold text-white shadow-md shadow-[#5b8cc5]/20 transition hover:-translate-y-0.5 hover:bg-[#4f7fb5] disabled:opacity-50 sm:col-span-2"
+                      className="theme-accent-bg rounded-full bg-[#5b8cc5] px-5 py-3 text-sm font-semibold text-white shadow-md shadow-[#5b8cc5]/20 transition hover:-translate-y-0.5 hover:bg-[#4f7fb5] disabled:opacity-50 sm:col-span-2"
                     >
                       {isSendingSignIn
                         ? "Please wait..."
@@ -1131,8 +1174,8 @@ export default function Home() {
                 {session && (
                   <p className="mt-2 text-xs leading-5 text-[#52677d]">
                     Your account list syncs across devices. Gift reservations are
-                    hidden from your signed-in owner view. You stay signed in on
-                    this device until you sign out.
+                    hidden from your signed-in owner view. Use the settings gear
+                    to change your appearance or sign out.
                   </p>
                 )}
                 {!session && supabase && authReady && (
@@ -1145,14 +1188,29 @@ export default function Home() {
             )}
           </div>
 
-          <div className="flex flex-col rounded-[1.5rem] border border-white/80 bg-[#f8fbff]/90 p-5 shadow-inner shadow-[#b9d4f2]/30 md:p-6">
+          <div className="theme-surface flex flex-col rounded-[1.5rem] border border-white/80 bg-[#f8fbff]/90 p-5 shadow-inner shadow-[#b9d4f2]/30 md:p-6">
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#5f83aa]">
                 {isSharedView ? "Family mode" : "Your sharing link"}
               </p>
-              <span className="rounded-full bg-[#e6f0fb] px-3 py-1 text-xs font-semibold text-[#36516b]">
-                {isSharedView ? "Live list" : isCloudAccount ? "Synced" : "On this device"}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="theme-surface rounded-full bg-[#e6f0fb] px-3 py-1 text-xs font-semibold text-[#36516b]">
+                  {isSharedView ? "Live list" : isCloudAccount ? "Synced" : "On this device"}
+                </span>
+                {!isSharedView && authReady && session && (
+                  <Link
+                    href="/settings"
+                    aria-label="Settings"
+                    title="Settings"
+                    className="theme-control flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#bdd3eb] bg-white/80 text-[#344b63] transition hover:bg-[#e8f2ff] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5b8cc5]"
+                  >
+                    <svg aria-hidden="true" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-1.6 2.77-.08-.02a1.7 1.7 0 0 0-1.77.52l-.05.07h-3.2l-.03-.08a1.7 1.7 0 0 0-1.5-1.1h-.09l-1.6-2.77.06-.06A1.7 1.7 0 0 0 9.6 15l-.03-.08-2.4-1.4.01-.08a1.7 1.7 0 0 0-.63-1.7l-.07-.05 1.6-2.77.08.02a1.7 1.7 0 0 0 1.77-.52l.05-.07h3.2l.03.08a1.7 1.7 0 0 0 1.5 1.1h.09l1.6 2.77-.06.06a1.7 1.7 0 0 0 .34 1.88l.03.08 2.4 1.4-.01.08a1.7 1.7 0 0 0 .63 1.7l.07.05-1.6 2.77-.08-.02a1.7 1.7 0 0 0-1.77.52l-.05.07" />
+                    </svg>
+                  </Link>
+                )}
+              </div>
             </div>
             <p className="mt-4 text-4xl font-semibold tracking-tight">{visibleItems.length}</p>
             <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-[#6a7f95]">
@@ -1174,20 +1232,20 @@ export default function Home() {
                   type="button"
                   onClick={copyShareLink}
                   disabled={isCloudAccount && !shareToken}
-                  className="w-full rounded-full bg-[#172033] px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-[#172033]/20 transition hover:-translate-y-0.5 hover:bg-[#284b78] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="theme-inverse w-full rounded-full bg-[#172033] px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-[#172033]/20 transition hover:-translate-y-0.5 hover:bg-[#284b78] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {shareCopied
                     ? "Copied link"
                     : isCloudAccount
                       ? "Copy live family link"
-                      : "Copy snapshot share link"}
+                      : "Copy this list"}
                 </button>
                 <div className="grid grid-cols-1 gap-3">
                   <button
                     type="button"
                     onClick={() => importInputRef.current?.click()}
                     disabled={!isBrowserReady || isImporting}
-                    className="rounded-full border border-[#bdd3eb] bg-white px-4 py-3 text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] disabled:opacity-50"
+                    className="theme-control rounded-full border border-[#bdd3eb] bg-white px-4 py-3 text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] disabled:opacity-50"
                   >
                     {isImporting ? "Importing..." : "Import HTML"}
                   </button>
@@ -1210,7 +1268,7 @@ export default function Home() {
                     type="button"
                     onClick={() => void importThisDevice()}
                     disabled={!wishlistId || isImporting}
-                    className="rounded-full border border-[#bdd3eb] bg-white px-4 py-3 text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] disabled:opacity-50"
+                    className="theme-control rounded-full border border-[#bdd3eb] bg-white px-4 py-3 text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] disabled:opacity-50"
                   >
                     Copy this device&apos;s list to my account
                   </button>
@@ -1220,17 +1278,100 @@ export default function Home() {
                 </p>
               </div>
             )}
+            {!session && <details className="mt-5 border-t border-[#dce8f5] pt-4">
+              <summary className="cursor-pointer list-none text-sm font-semibold text-[#344b63] marker:hidden">
+                Appearance
+              </summary>
+              <div className="mt-4 grid gap-4">
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#6a7f95]">
+                    Theme
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(["light", "dark"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        aria-pressed={themeMode === mode}
+                        onClick={() => updateAppearance(mode, themeAccent)}
+                        className={`theme-control theme-accent-border rounded-full border px-3 py-2 text-sm font-semibold capitalize transition ${
+                          themeMode === mode
+                            ? "theme-accent-bg border-[#5b8cc5] bg-[#e8f2ff] text-white"
+                            : "border-[#bdd3eb] bg-white text-[#52677d] hover:bg-[#e8f2ff]"
+                        }`}
+                      >
+                        {mode}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#6a7f95]">
+                    Accent color
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    {accentOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-label={`${option.label} accent`}
+                        aria-pressed={themeAccent === option.value}
+                        onClick={() => updateAppearance(themeMode, option.value)}
+                        className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white shadow-sm outline-offset-2 transition hover:scale-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#172033]"
+                        style={{ backgroundColor: option.color }}
+                      >
+                        {themeAccent === option.value && (
+                          <span className="text-sm font-bold text-white" aria-hidden="true">
+                            ✓
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p role="status" className="text-xs leading-5 text-[#8b4a58]">
+                  {appearanceMessage}
+                </p>
+              </div>
+            </details>}
           </div>
         </header>
 
         {!isSharedView && (
-          <section className="relative z-10 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
+          <nav
+            aria-label="Wishlist sections"
+            className="theme-surface sticky top-3 z-20 grid grid-cols-2 gap-2 rounded-full border border-white/80 bg-white/80 p-1.5 shadow-lg shadow-[#476587]/10 backdrop-blur md:hidden"
+          >
+            {(["list", "add"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                aria-pressed={mobileTab === tab}
+                onClick={() => setMobileTab(tab)}
+                className={`theme-control min-h-11 rounded-full px-4 text-sm font-semibold capitalize transition ${
+                  mobileTab === tab
+                    ? "theme-accent-bg bg-[#172033] text-white shadow-sm"
+                    : "text-[#52677d] hover:bg-[#e8f2ff]"
+                }`}
+              >
+                {tab === "list" ? `My list (${items.length})` : "Add a find"}
+              </button>
+            ))}
+          </nav>
+        )}
+
+        {!isSharedView && (
+          <section
+            className={`relative z-10 gap-6 lg:grid-cols-[0.85fr_1.15fr] ${
+              mobileTab === "add" ? "grid" : "hidden"
+            } md:grid`}
+          >
             <form
               ref={formRef}
               onSubmit={handleSubmit}
-              className="rounded-[2rem] border border-white/70 bg-[#f8fbff]/90 p-6 shadow-xl shadow-[#476587]/10"
+              className="theme-surface rounded-[2rem] border border-white/70 bg-[#f8fbff]/90 p-6 shadow-xl shadow-[#476587]/10"
             >
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#4f7fb5]">
+              <p className="theme-accent-text text-sm font-semibold uppercase tracking-[0.28em] text-[#4f7fb5]">
                 {editingItem ? "Edit saved find" : "Add a new find"}
               </p>
               <h2 className="mt-3 text-2xl font-semibold">
@@ -1245,7 +1386,7 @@ export default function Home() {
                     value={form.productUrl}
                     onChange={(event) => handleProductUrlChange(event.target.value)}
                     placeholder="https://store.com/item"
-                    className="rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
+                    className="theme-field theme-accent-field rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
                   />
                 </label>
                 {previewState.message && (
@@ -1267,7 +1408,7 @@ export default function Home() {
                     value={form.title}
                     onChange={(event) => setForm({ ...form, title: event.target.value })}
                     placeholder="Auto-filled from the product link"
-                    className="rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
+                    className="theme-field theme-accent-field rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
                   />
                 </label>
                 <label className="grid gap-2 text-sm font-medium text-[#344b63]">
@@ -1279,7 +1420,7 @@ export default function Home() {
                       setForm({ ...form, imageUrl: event.target.value })
                     }
                     placeholder="Paste a photo link, or leave this blank"
-                    className="rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
+                    className="theme-field theme-accent-field rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
                   />
                 </label>
                 <p className="text-xs leading-5 text-[#52677d]">
@@ -1293,7 +1434,7 @@ export default function Home() {
                     onChange={(event) => setForm({ ...form, notes: event.target.value })}
                     placeholder="Size, color, why you like it..."
                     rows={3}
-                    className="resize-none rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
+                    className="theme-field theme-accent-field resize-none rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
                   />
                 </label>
                 <label className="grid gap-2 text-sm font-medium text-[#344b63]">
@@ -1303,7 +1444,7 @@ export default function Home() {
                     onChange={(event) =>
                       setForm({ ...form, status: event.target.value as WishStatus })
                     }
-                    className="rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
+                    className="theme-field theme-accent-field rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
                   >
                     {statusOptions.map((status) => (
                       <option key={status}>{status}</option>
@@ -1326,7 +1467,7 @@ export default function Home() {
                           aria-label={`${option.value} of 3 stars: ${option.label}`}
                           className="peer sr-only"
                         />
-                        <span className="flex h-full flex-col items-center justify-center gap-2 rounded-2xl border border-[#c9dcef] bg-white px-3 py-3 text-center text-xs font-semibold text-[#52677d] transition hover:bg-[#fff8e8] peer-checked:border-[#b17a25] peer-checked:bg-[#fff8e8] peer-checked:text-[#825a20] peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[#5b8cc5]">
+                        <span className="theme-priority flex h-full flex-col items-center justify-center gap-2 rounded-2xl border border-[#c9dcef] bg-white px-3 py-3 text-center text-xs font-semibold text-[#52677d] transition hover:bg-[#fff8e8] peer-checked:border-[#b17a25] peer-checked:bg-[#fff8e8] peer-checked:text-[#825a20] peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[#5b8cc5]">
                           <PriorityStars priority={option.value} />
                           {option.label}
                         </span>
@@ -1337,7 +1478,7 @@ export default function Home() {
               </div>
               <button
                 type="submit"
-                className="mt-6 w-full rounded-full bg-[#5b8cc5] px-6 py-4 font-semibold text-white shadow-lg shadow-[#5b8cc5]/25 transition hover:-translate-y-0.5 hover:bg-[#4f7fb5]"
+                className="theme-accent-bg mt-6 w-full rounded-full bg-[#5b8cc5] px-6 py-4 font-semibold text-white shadow-lg shadow-[#5b8cc5]/25 transition hover:-translate-y-0.5 hover:bg-[#4f7fb5]"
               >
                 {editingItem ? "Save changes" : "Add to my wishlist"}
               </button>
@@ -1352,7 +1493,7 @@ export default function Home() {
               )}
             </form>
 
-            <div className="rounded-[2rem] border border-white/70 bg-white/45 p-6 shadow-xl shadow-[#476587]/10">
+            <div className="theme-surface hidden rounded-[2rem] border border-white/70 bg-white/45 p-6 shadow-xl shadow-[#476587]/10 md:block">
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#5f83aa]">
                 Live preview
               </p>
@@ -1364,13 +1505,13 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => setIsHowItWorksOpen(true)}
-                className="mt-5 rounded-full border border-[#bdd3eb] bg-white/70 px-4 py-2 text-xs font-semibold text-[#344b63] transition hover:bg-white"
+                className="theme-control mt-5 rounded-full border border-[#bdd3eb] bg-white/70 px-4 py-2 text-xs font-semibold text-[#344b63] transition hover:bg-white"
               >
                 How it works
               </button>
-              <div className="mt-6 overflow-hidden rounded-[2rem] border border-white/80 bg-[#f8fbff] shadow-xl shadow-[#476587]/10">
+              <div className="theme-surface mt-6 overflow-hidden rounded-[2rem] border border-white/80 bg-[#f8fbff] shadow-xl shadow-[#476587]/10">
                 <div
-                  className="flex h-72 items-center justify-center bg-[#dcecff] bg-cover bg-center px-8 text-center text-sm font-semibold text-[#5f83aa]"
+                  className="theme-image-fallback flex h-72 items-center justify-center bg-[#dcecff] bg-cover bg-center px-8 text-center text-sm font-semibold text-[#5f83aa]"
                   style={form.imageUrl ? { backgroundImage: `url(${form.imageUrl})` } : undefined}
                   role={form.imageUrl ? "img" : undefined}
                   aria-label={form.imageUrl ? form.title || "Wishlist item preview" : undefined}
@@ -1390,12 +1531,12 @@ export default function Home() {
                         From {form.productUrl ? getStoreName(form.productUrl) : "store link"}
                       </p>
                     </div>
-                    <span className="rounded-full bg-[#e6f0fb] px-3 py-1 text-xs font-semibold text-[#36516b]">
+                    <span className="theme-surface rounded-full bg-[#e6f0fb] px-3 py-1 text-xs font-semibold text-[#36516b]">
                       {form.status}
                     </span>
                   </div>
                   <PriorityBadge priority={form.priority} />
-                  <p className="mt-4 rounded-2xl bg-white/70 p-4 text-sm leading-6 text-[#52677d]">
+                  <p className="theme-surface mt-4 rounded-2xl bg-white/70 p-4 text-sm leading-6 text-[#52677d]">
                     {form.notes || "Notes like size, color, or why you love it will show here."}
                   </p>
                 </div>
@@ -1410,12 +1551,12 @@ export default function Home() {
               role="dialog"
               aria-modal="true"
               aria-labelledby="how-it-works-title"
-              className="relative w-full max-w-2xl rounded-[2rem] border border-white/80 bg-[#f8fbff] p-6 shadow-2xl shadow-[#172033]/20"
+              className="theme-surface relative w-full max-w-2xl rounded-[2rem] border border-white/80 bg-[#f8fbff] p-6 shadow-2xl shadow-[#172033]/20"
             >
               <button
                 type="button"
                 onClick={() => setIsHowItWorksOpen(false)}
-                className="absolute right-5 top-5 rounded-full border border-[#bdd3eb] px-3 py-1 text-sm font-semibold text-[#52677d] transition hover:bg-[#f4dce3]"
+                className="theme-control absolute right-5 top-5 rounded-full border border-[#bdd3eb] px-3 py-1 text-sm font-semibold text-[#52677d] transition hover:bg-[#f4dce3]"
               >
                 Close
               </button>
@@ -1423,7 +1564,7 @@ export default function Home() {
                 How it works
               </p>
               <h2 id="how-it-works-title" className="mt-3 pr-16 text-3xl font-semibold">
-                From browser find to birthday list
+                From finding it to sharing it
               </h2>
               <div className="mt-6 grid gap-4 sm:grid-cols-3">
                 {[
@@ -1441,9 +1582,9 @@ export default function Home() {
                 ].map(([step, title, copy]) => (
                   <div
                     key={step}
-                    className="rounded-[1.5rem] bg-white p-5 shadow-sm shadow-[#476587]/10"
+                    className="theme-surface rounded-[1.5rem] bg-white p-5 shadow-sm shadow-[#476587]/10"
                   >
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#d7e8ff] text-sm font-bold text-[#315f8f]">
+                    <span                     className="theme-accent-bg flex h-9 w-9 items-center justify-center rounded-full bg-[#d7e8ff] text-sm font-bold text-white">
                       {step}
                     </span>
                     <h3 className="mt-4 font-semibold">{title}</h3>
@@ -1455,18 +1596,22 @@ export default function Home() {
           </div>
         )}
 
-        <section className="relative z-10">
+        <section
+          className={`relative z-10 ${
+            !isSharedView && mobileTab === "add" ? "hidden md:block" : "block"
+          }`}
+        >
           <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#4f7fb5]">
-                {isSharedView ? "Shared birthday list" : "Your saved finds"}
+              <p className="theme-accent-text text-sm font-semibold uppercase tracking-[0.28em] text-[#4f7fb5]">
+                {isSharedView ? "Shared wish list" : "Your saved finds"}
               </p>
               <h2 className="mt-2 text-3xl font-semibold">Wishlist board</h2>
             </div>
             {isSharedView && (
               <Link
                 href="/"
-                className="rounded-full border border-[#bdd3eb] bg-white/70 px-5 py-3 text-sm font-semibold text-[#344b63] transition hover:bg-white"
+                className="theme-control rounded-full border border-[#bdd3eb] bg-white/70 px-5 py-3 text-sm font-semibold text-[#344b63] transition hover:bg-white"
               >
                 Back to my app
               </Link>
@@ -1489,11 +1634,14 @@ export default function Home() {
                   : "This wishlist is empty or could not be found.")}
             </p>
           )}
-          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          <div
+            className="wishlist-grid grid gap-5"
+            data-card-columns={gridColumnsSnapshot}
+          >
             {visibleItems.map((item) => (
               <article
                 key={item.id}
-                className="group relative overflow-hidden rounded-[2rem] border border-white/80 bg-[#f8fbff] shadow-xl shadow-[#476587]/10 transition hover:-translate-y-1"
+                className="theme-surface group relative overflow-hidden rounded-[2rem] border border-white/80 bg-[#f8fbff] shadow-xl shadow-[#476587]/10 transition hover:-translate-y-1"
               >
                 {!isSharedView && (
                   <div
@@ -1507,7 +1655,7 @@ export default function Home() {
                       onClick={() =>
                         setOpenItemMenuId((currentId) => currentId === item.id ? null : item.id)
                       }
-                      className="flex h-10 w-10 items-center justify-center rounded-full border border-[#bdd3eb] bg-white/95 text-[#344b63] shadow-sm transition hover:bg-[#e8f2ff] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5b8cc5]"
+                      className="theme-control flex h-10 w-10 items-center justify-center rounded-full border border-[#bdd3eb] bg-white/95 text-[#344b63] shadow-sm transition hover:bg-[#e8f2ff] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5b8cc5]"
                     >
                       <svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
                         <circle cx="10" cy="4" r="1.75" />
@@ -1516,18 +1664,18 @@ export default function Home() {
                       </svg>
                     </button>
                     {openItemMenuId === item.id && (
-                      <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-2xl border border-[#c9dcef] bg-white p-1 shadow-xl shadow-[#476587]/20">
+                      <div className="theme-surface absolute right-0 mt-2 w-56 overflow-hidden rounded-2xl border border-[#c9dcef] bg-white p-1 shadow-xl shadow-[#476587]/20">
                         <button
                           type="button"
                           onClick={() => void copyItemLink(item)}
-                          className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] focus-visible:bg-[#e8f2ff]"
+                          className="theme-control w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] focus-visible:bg-[#e8f2ff]"
                         >
                           Copy link
                         </button>
                         <button
                           type="button"
                           onClick={() => editItem(item)}
-                          className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] focus-visible:bg-[#e8f2ff]"
+                          className="theme-control w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] focus-visible:bg-[#e8f2ff]"
                         >
                           Edit
                         </button>
@@ -1539,7 +1687,7 @@ export default function Home() {
                             onChange={(event) =>
                               updateStatus(item.id, event.target.value as WishStatus)
                             }
-                            className="w-full rounded-xl border border-[#bdd3eb] bg-white px-2 py-2 text-sm font-semibold text-[#344b63]"
+                            className="theme-field w-full rounded-xl border border-[#bdd3eb] bg-white px-2 py-2 text-sm font-semibold text-[#344b63]"
                           >
                             {statusOptions.map((status) => (
                               <option key={status}>{status}</option>
@@ -1549,7 +1697,7 @@ export default function Home() {
                         <button
                           type="button"
                           onClick={() => removeItem(item.id)}
-                          className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-[#8b4a58] transition hover:bg-[#f4dce3] focus-visible:bg-[#f4dce3]"
+                          className="theme-control w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-[#8b4a58] transition hover:bg-[#f4dce3] focus-visible:bg-[#f4dce3]"
                         >
                           Remove
                         </button>
@@ -1558,7 +1706,7 @@ export default function Home() {
                   </div>
                 )}
                 <div
-                  className="flex h-72 items-center justify-center bg-[#dcecff] bg-cover bg-center px-8 text-center text-sm font-semibold text-[#5f83aa]"
+                  className="wishlist-card-image theme-image-fallback flex h-72 items-center justify-center bg-[#dcecff] bg-cover bg-center px-8 text-center text-sm font-semibold text-[#5f83aa]"
                   style={item.imageUrl ? { backgroundImage: `url(${item.imageUrl})` } : undefined}
                   role={item.imageUrl ? "img" : undefined}
                   aria-label={item.imageUrl ? item.title : undefined}
@@ -1576,14 +1724,14 @@ export default function Home() {
                         From {getStoreName(item.productUrl)}
                       </p>
                     </div>
-                    <span className="rounded-full bg-[#e6f0fb] px-3 py-1 text-xs font-semibold text-[#36516b]">
+                    <span className="theme-surface rounded-full bg-[#e6f0fb] px-3 py-1 text-xs font-semibold text-[#36516b]">
                       {item.status}
                     </span>
                   </div>
 
                   <PriorityBadge priority={item.priority} />
                   {item.notes && (
-                    <p className="mt-4 rounded-2xl bg-white/70 p-4 text-sm leading-6 text-[#52677d]">
+                    <p className="theme-surface mt-4 rounded-2xl bg-white/70 p-4 text-sm leading-6 text-[#52677d]">
                       {item.notes}
                     </p>
                   )}
@@ -1593,7 +1741,7 @@ export default function Home() {
                       href={item.productUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="rounded-full bg-[#172033] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#284b78]"
+                      className="theme-inverse rounded-full bg-[#172033] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#284b78]"
                     >
                       {liveShareItems?.reservedIds.has(item.id) ? "View item" : "Buy / view item"}
                     </a>
@@ -1606,7 +1754,7 @@ export default function Home() {
                           liveShareItems.reservedIds.has(item.id) || isReserving === item.id
                         }
                         onClick={() => void markAsBought(item.id)}
-                        className="rounded-full border border-[#bdd3eb] bg-white px-5 py-3 text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] disabled:cursor-not-allowed disabled:opacity-70"
+                        className="theme-control rounded-full border border-[#bdd3eb] bg-white px-5 py-3 text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] disabled:cursor-not-allowed disabled:opacity-70"
                       >
                         {liveShareItems.reservedIds.has(item.id)
                           ? "Already marked bought"

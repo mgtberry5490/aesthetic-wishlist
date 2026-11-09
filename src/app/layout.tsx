@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Aesthetic Wishlist",
-  description: "A cozy wishlist app for saving and sharing gift ideas.",
+  title: "Wishful",
+  description: "A shared place for your family's gift ideas and wish lists.",
 };
 
 export default function RootLayout({
