@@ -21,6 +21,8 @@ import {
   type WishPriority,
   type WishStatus,
 } from "@/lib/wishlist-html";
+import { getSupabaseClient } from "@/lib/supabase";
+import type { Session } from "@supabase/supabase-js";
 
 type LinkPreview = {
   title: string;
@@ -164,6 +166,42 @@ function parseStoredWishlistItems(value: string) {
   }
 }
 
+function itemFromDatabase(row: {
+  id: string;
+  title: string;
+  product_url: string;
+  image_url: string;
+  notes: string;
+  status: WishStatus;
+  priority: WishPriority | null;
+  added_at: string;
+}): WishlistItem {
+  return {
+    id: row.id,
+    title: row.title,
+    productUrl: row.product_url,
+    imageUrl: row.image_url,
+    notes: row.notes,
+    status: row.status,
+    ...(row.priority === null ? {} : { priority: row.priority }),
+    addedAt: row.added_at,
+  };
+}
+
+function itemForDatabase(item: WishlistItem, wishlistId: string) {
+  return {
+    id: item.id,
+    wishlist_id: wishlistId,
+    title: item.title,
+    product_url: item.productUrl,
+    image_url: item.imageUrl,
+    notes: item.notes,
+    status: item.status,
+    priority: item.priority ?? null,
+    added_at: item.addedAt,
+  };
+}
+
 function PriorityStars({ priority }: { priority: WishPriority }) {
   return (
     <span aria-hidden="true" className="flex gap-1">
@@ -198,6 +236,7 @@ function PriorityBadge({ priority }: { priority?: WishPriority }) {
 }
 
 export default function Home() {
+  const supabase = getSupabaseClient();
   const storedWishlistSnapshot = useSyncExternalStore(
     subscribeToBrowserSnapshot,
     getStoredWishlistSnapshot,
@@ -218,11 +257,24 @@ export default function Home() {
     [storedWishlistSnapshot],
   );
   const [draftItems, setDraftItems] = useState<WishlistItem[] | null>(null);
+  const [cloudItems, setCloudItems] = useState<WishlistItem[]>([]);
+  const [liveShareItems, setLiveShareItems] = useState<
+    { token: string; items: WishlistItem[]; reservedIds: Set<string> } | null
+  >(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authReady, setAuthReady] = useState(!supabase);
+  const [loadedShareToken, setLoadedShareToken] = useState<string | null>(null);
+  const [wishlistId, setWishlistId] = useState<string | null>(null);
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [accountMessage, setAccountMessage] = useState("");
+  const [isSendingSignIn, setIsSendingSignIn] = useState(false);
+  const [isReserving, setIsReserving] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [openItemMenuId, setOpenItemMenuId] = useState<string | null>(null);
   const [itemActionMessage, setItemActionMessage] = useState("");
-  const shareItems = useMemo(() => decodeShareItems(shareSnapshot), [shareSnapshot]);
+  const localShareItems = useMemo(() => decodeShareItems(shareSnapshot), [shareSnapshot]);
   const [shareCopied, setShareCopied] = useState(false);
   const [previewState, setPreviewState] = useState<PreviewState>(idlePreviewState);
   const [isHowItWorksOpen, setIsHowItWorksOpen] = useState(false);
@@ -233,17 +285,216 @@ export default function Home() {
   const itemMenuRef = useRef<HTMLDivElement>(null);
   const previewTimerRef = useRef<number | null>(null);
   const previewRequestIdRef = useRef(0);
-  const items = draftItems ?? savedItems;
+  const isSharedView = Boolean(shareSnapshot);
+  const isCloudAccount = Boolean(supabase && session);
+  const items = isCloudAccount ? cloudItems : draftItems ?? savedItems;
+  const shareItems =
+    localShareItems ??
+    (liveShareItems?.token === shareSnapshot ? liveShareItems.items : null);
+  const isLoadingLiveShare = Boolean(
+    supabase &&
+      authReady &&
+      shareSnapshot &&
+      !localShareItems &&
+      loadedShareToken !== shareSnapshot,
+  );
   const editingItem = items.find((item) => item.id === editingItemId);
   const isBrowserReady = browserReadySnapshot === "ready";
 
   useEffect(() => {
-    if (!isBrowserReady || shareItems) {
+    if (!supabase) {
+      return;
+    }
+
+    let active = true;
+    void supabase.auth
+      .getSession()
+      .then(({ data, error }) => {
+        if (!active) {
+          return;
+        }
+
+        if (error) {
+          setAccountMessage(`Could not restore your sign-in: ${error.message}`);
+        }
+        setSession(data.session);
+        setAuthReady(true);
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setAccountMessage(
+            error instanceof Error
+              ? `Could not restore your sign-in: ${error.message}`
+              : "Could not restore your sign-in.",
+          );
+          setAuthReady(true);
+        }
+      });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setAuthReady(true);
+      setAccountMessage("");
+      if (!nextSession) {
+        setWishlistId(null);
+        setShareToken(null);
+        setCloudItems([]);
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!isBrowserReady || isSharedView || isCloudAccount) {
       return;
     }
 
     window.localStorage.setItem(storageKey, JSON.stringify(items));
-  }, [isBrowserReady, items, shareItems]);
+  }, [isBrowserReady, items, isSharedView, isCloudAccount]);
+
+  useEffect(() => {
+    if (!supabase || !authReady || !session) {
+      return;
+    }
+
+    let active = true;
+    const loadWishlist = async () => {
+      const { data: existingWishlist, error: wishlistError } = await supabase
+        .from("wishlists")
+        .select("id, share_token")
+        .maybeSingle();
+
+      if (wishlistError) {
+        if (active) {
+          setAccountMessage(`Could not load your wishlist: ${wishlistError.message}`);
+        }
+        return;
+      }
+
+      let wishlist = existingWishlist;
+      if (!wishlist) {
+        const { data: newWishlist, error: createError } = await supabase
+          .from("wishlists")
+          .insert({ owner_id: session.user.id })
+          .select("id, share_token")
+          .single();
+
+        if (createError) {
+          if (active) {
+            setAccountMessage(`Could not create your wishlist: ${createError.message}`);
+          }
+          return;
+        }
+        wishlist = newWishlist;
+      }
+
+      const { data: rows, error: itemsError } = await supabase
+        .from("wishlist_items")
+        .select("id, title, product_url, image_url, notes, status, priority, added_at")
+        .eq("wishlist_id", wishlist.id)
+        .order("added_at", { ascending: false });
+
+      if (!active) {
+        return;
+      }
+      if (itemsError) {
+        setAccountMessage(`Could not load your saved items: ${itemsError.message}`);
+        return;
+      }
+
+      setWishlistId(wishlist.id);
+      setShareToken(wishlist.share_token);
+      setCloudItems((rows ?? []).map(itemFromDatabase));
+      setAccountMessage("");
+    };
+
+    void loadWishlist().catch((error: unknown) => {
+      if (active) {
+        setAccountMessage(
+          error instanceof Error
+            ? `Could not load your wishlist: ${error.message}`
+            : "Could not load your wishlist.",
+        );
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [supabase, authReady, session]);
+
+  useEffect(() => {
+    if (!supabase || !authReady || !shareSnapshot || localShareItems) {
+      return;
+    }
+
+    let active = true;
+    const loadSharedWishlist = async () => {
+      try {
+        const { data, error } = await supabase.rpc("get_shared_wishlist", {
+          p_share_token: shareSnapshot,
+        });
+        if (!active) {
+          return;
+        }
+
+        if (error) {
+          setItemActionMessage(`Could not load this shared list: ${error.message}`);
+          setLoadedShareToken(shareSnapshot);
+          return;
+        }
+
+        if (!data || typeof data !== "object" || !("items" in data) || !Array.isArray(data.items)) {
+          setItemActionMessage("This live wishlist could not be found.");
+          setLoadedShareToken(shareSnapshot);
+          return;
+        }
+
+        const sharedRows = data.items as Array<Record<string, unknown>>;
+        const wishlistItems = sharedRows.map((row) => {
+          const item = { ...row };
+          delete item.reserved;
+          return item;
+        });
+        const parsedItems = parseWishlistData(
+          JSON.stringify({
+            format: "aesthetic-wishlist",
+            version: 1,
+            items: wishlistItems,
+          }),
+        );
+        const reservedIds = new Set(
+          sharedRows.filter((item) => item.reserved === true).map((item) => String(item.id)),
+        );
+        setLiveShareItems({ token: shareSnapshot, items: parsedItems, reservedIds });
+        setLoadedShareToken(shareSnapshot);
+        setItemActionMessage("");
+      } catch (error: unknown) {
+        if (active) {
+          setItemActionMessage(
+            error instanceof Error ? `Could not load this shared list: ${error.message}` : "Could not load this shared list.",
+          );
+          setLoadedShareToken(shareSnapshot);
+        }
+      }
+    };
+
+    void loadSharedWishlist();
+    const refreshInterval = window.setInterval(() => {
+      void loadSharedWishlist();
+    }, 30_000);
+    window.addEventListener("focus", loadSharedWishlist);
+    return () => {
+      active = false;
+      window.clearInterval(refreshInterval);
+      window.removeEventListener("focus", loadSharedWishlist);
+    };
+  }, [supabase, authReady, shareSnapshot, localShareItems]);
 
   useEffect(() => {
     if (openItemMenuId === null) {
@@ -270,14 +521,17 @@ export default function Home() {
     };
   }, [openItemMenuId]);
 
-  const visibleItems = shareItems ?? items;
+  const isOwnerShare = Boolean(session && shareToken && shareSnapshot === shareToken);
+  const visibleItems = isSharedView ? shareItems ?? [] : items;
   const shareLink = useMemo(() => {
     if (typeof window === "undefined") {
       return "";
     }
 
-    return `${window.location.origin}${window.location.pathname}?share=${encodeShareItems(items)}`;
-  }, [items]);
+    const shareValue =
+      isCloudAccount && shareToken ? shareToken : encodeShareItems(items);
+    return `${window.location.origin}${window.location.pathname}?share=${shareValue}`;
+  }, [items, isCloudAccount, shareToken]);
 
   const resetForm = () => {
     previewRequestIdRef.current += 1;
@@ -320,7 +574,43 @@ export default function Home() {
     }
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const saveCloudItem = async (item: WishlistItem) => {
+    if (!supabase) {
+      setItemActionMessage("Account sync is not configured.");
+      return false;
+    }
+    if (!wishlistId) {
+      setItemActionMessage("Your account list is still loading. Please try again.");
+      return false;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("wishlist_items")
+        .upsert(itemForDatabase(item, wishlistId));
+
+      if (error) {
+        setItemActionMessage(`Could not save this item: ${error.message}`);
+        return false;
+      }
+    } catch (error) {
+      setItemActionMessage(
+        error instanceof Error ? `Could not save this item: ${error.message}` : "Could not save this item.",
+      );
+      return false;
+    }
+
+    setCloudItems((currentItems) => {
+      const exists = currentItems.some((currentItem) => currentItem.id === item.id);
+      return exists
+        ? currentItems.map((currentItem) => currentItem.id === item.id ? item : currentItem)
+        : [item, ...currentItems];
+    });
+    setItemActionMessage("");
+    return true;
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const details = {
@@ -333,11 +623,21 @@ export default function Home() {
     };
 
     if (editingItemId !== null) {
-      setDraftItems((currentItems) =>
-        (currentItems ?? items).map((item) =>
-          item.id === editingItemId ? { ...item, ...details } : item,
-        ),
-      );
+      const updatedItem = items.find((item) => item.id === editingItemId);
+      if (!updatedItem) {
+        return;
+      }
+
+      const nextItem = { ...updatedItem, ...details };
+      if (isCloudAccount) {
+        if (!(await saveCloudItem(nextItem))) {
+          return;
+        }
+      } else {
+        setDraftItems((currentItems) =>
+          (currentItems ?? items).map((item) => item.id === editingItemId ? nextItem : item),
+        );
+      }
     } else {
       const newItem: WishlistItem = {
         ...details,
@@ -345,7 +645,13 @@ export default function Home() {
         addedAt: new Date().toISOString(),
       };
 
-      setDraftItems((currentItems) => [newItem, ...(currentItems ?? items)]);
+      if (isCloudAccount) {
+        if (!(await saveCloudItem(newItem))) {
+          return;
+        }
+      } else {
+        setDraftItems((currentItems) => [newItem, ...(currentItems ?? items)]);
+      }
     }
 
     resetForm();
@@ -429,30 +735,167 @@ export default function Home() {
     }, 500);
   };
 
-  const updateStatus = (id: string, status: WishStatus) => {
+  const updateStatus = async (id: string, status: WishStatus) => {
     setOpenItemMenuId(null);
-    setDraftItems((currentItems) =>
-      (currentItems ?? items).map((item) => (item.id === id ? { ...item, status } : item)),
-    );
+    const item = items.find((currentItem) => currentItem.id === id);
+    if (!item) {
+      return;
+    }
+    const nextItem = { ...item, status };
+    if (isCloudAccount) {
+      await saveCloudItem(nextItem);
+    } else {
+      setDraftItems((currentItems) =>
+        (currentItems ?? items).map((currentItem) => currentItem.id === id ? nextItem : currentItem),
+      );
+    }
 
     if (id === editingItemId) {
       setForm((currentForm) => ({ ...currentForm, status }));
     }
   };
 
-  const removeItem = (id: string) => {
+  const removeItem = async (id: string) => {
     setOpenItemMenuId(null);
-    setDraftItems((currentItems) => (currentItems ?? items).filter((item) => item.id !== id));
+    if (isCloudAccount && supabase) {
+      try {
+        const { error } = await supabase.from("wishlist_items").delete().eq("id", id);
+        if (error) {
+          setItemActionMessage(`Could not remove this item: ${error.message}`);
+          return;
+        }
+      } catch (error) {
+        setItemActionMessage(
+          error instanceof Error ? `Could not remove this item: ${error.message}` : "Could not remove this item.",
+        );
+        return;
+      }
+      setCloudItems((currentItems) => currentItems.filter((item) => item.id !== id));
+    } else {
+      setDraftItems((currentItems) => (currentItems ?? items).filter((item) => item.id !== id));
+    }
 
     if (id === editingItemId) {
       resetForm();
     }
   };
 
+  const sendSignInLink = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!supabase) {
+      setAccountMessage("Add the Supabase environment variables to enable account sign-in.");
+      return;
+    }
+
+    setIsSendingSignIn(true);
+    setAccountMessage("");
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: { emailRedirectTo: window.location.origin },
+      });
+      setAccountMessage(
+        error
+          ? `Could not send your sign-in link: ${error.message}`
+          : "Check your email for a secure sign-in link.",
+      );
+    } catch (error) {
+      setAccountMessage(
+        error instanceof Error
+          ? `Could not send your sign-in link: ${error.message}`
+          : "Could not send your sign-in link.",
+      );
+    } finally {
+      setIsSendingSignIn(false);
+    }
+  };
+
+  const signOut = async () => {
+    if (!supabase) {
+      return;
+    }
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        setAccountMessage(`Could not sign out: ${error.message}`);
+      } else {
+        setAccountMessage("You are signed out.");
+      }
+    } catch (error) {
+      setAccountMessage(
+        error instanceof Error ? `Could not sign out: ${error.message}` : "Could not sign out.",
+      );
+    }
+  };
+
+  const markAsBought = async (itemId: string) => {
+    if (!supabase || !shareSnapshot || isOwnerShare) {
+      return;
+    }
+    setIsReserving(itemId);
+    try {
+      const { data, error } = await supabase.rpc("reserve_wishlist_item", {
+        p_share_token: shareSnapshot,
+        p_item_id: itemId,
+      });
+      if (error) {
+        setItemActionMessage(`Could not mark this item as bought: ${error.message}`);
+        return;
+      }
+      if (data !== true) {
+        setItemActionMessage("Someone has already marked this item as bought.");
+      }
+
+      const { data: refreshed, error: refreshError } = await supabase.rpc(
+        "get_shared_wishlist",
+        { p_share_token: shareSnapshot },
+      );
+      if (refreshError) {
+        setItemActionMessage(`Could not refresh the shared list: ${refreshError.message}`);
+        return;
+      }
+      if (
+        refreshed &&
+        typeof refreshed === "object" &&
+        "items" in refreshed &&
+        Array.isArray(refreshed.items)
+      ) {
+        const reservedRows = refreshed.items as Array<Record<string, unknown>>;
+        setLiveShareItems((current) =>
+          current
+            ? {
+                ...current,
+                reservedIds: new Set(
+                  reservedRows
+                    .filter((row) => row.reserved === true)
+                    .map((row) => String(row.id)),
+                ),
+              }
+            : current,
+        );
+      }
+      if (data === true) {
+        setItemActionMessage("Marked as bought. Thank you for helping keep the gift a surprise!");
+      }
+    } catch (error) {
+      setItemActionMessage(
+        error instanceof Error
+          ? `Could not mark this item as bought: ${error.message}`
+          : "Could not mark this item as bought.",
+      );
+    } finally {
+      setIsReserving(null);
+    }
+  };
+
   const copyShareLink = async () => {
-    await navigator.clipboard.writeText(shareLink);
-    setShareCopied(true);
-    window.setTimeout(() => setShareCopied(false), 1800);
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setShareCopied(true);
+      window.setTimeout(() => setShareCopied(false), 1800);
+    } catch {
+      setAccountMessage("Could not copy the share link. Please try again.");
+    }
   };
 
   const exportHtml = () => {
@@ -499,15 +942,33 @@ export default function Home() {
       }
 
       const importedItems = parseWishlistData(data);
-      const currentItems = parseStoredWishlistItems(
-        window.localStorage.getItem(storageKey) ?? "",
-      );
+      if (isCloudAccount && (!supabase || !wishlistId)) {
+        throw new Error("Your account list is still loading. Please import again in a moment.");
+      }
+      const currentItems = isCloudAccount
+        ? cloudItems
+        : parseStoredWishlistItems(window.localStorage.getItem(storageKey) ?? "");
       const mergedItems = mergeWishlistItems(currentItems, importedItems);
       const addedCount = mergedItems.length - currentItems.length;
       const skippedCount = importedItems.length - addedCount;
 
-      window.localStorage.setItem(storageKey, JSON.stringify(mergedItems));
-      setDraftItems(mergedItems);
+      if (isCloudAccount && supabase && wishlistId) {
+        const additions = mergedItems.filter(
+          (item) => !currentItems.some((currentItem) => currentItem.id === item.id),
+        );
+        if (additions.length > 0) {
+          const { error } = await supabase
+            .from("wishlist_items")
+            .upsert(additions.map((item) => itemForDatabase(item, wishlistId)));
+          if (error) {
+            throw new Error(`Could not import items to your account: ${error.message}`);
+          }
+        }
+        setCloudItems(mergedItems);
+      } else {
+        window.localStorage.setItem(storageKey, JSON.stringify(mergedItems));
+        setDraftItems(mergedItems);
+      }
       setFileMessage(
         `Imported ${addedCount} ${addedCount === 1 ? "item" : "items"}. ${skippedCount} already on your list skipped.`,
       );
@@ -516,6 +977,43 @@ export default function Home() {
         error instanceof Error && !(error instanceof SyntaxError)
           ? error.message
           : "Could not read this wishlist file. Your list was not changed.",
+      );
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const importThisDevice = async () => {
+    if (!supabase || !wishlistId || !isCloudAccount) {
+      return;
+    }
+
+    setIsImporting(true);
+    setFileMessage("");
+    try {
+      const additions = savedItems.filter(
+        (item) => !cloudItems.some((cloudItem) => cloudItem.id === item.id),
+      );
+      if (additions.length === 0) {
+        setFileMessage("Your account list already has everything saved on this device.");
+        return;
+      }
+
+      const { error } = await supabase
+        .from("wishlist_items")
+        .upsert(additions.map((item) => itemForDatabase(item, wishlistId)));
+      if (error) {
+        setFileMessage(`Could not copy this device's list: ${error.message}`);
+        return;
+      }
+
+      setCloudItems((currentItems) => mergeWishlistItems(currentItems, additions));
+      setFileMessage(`Copied ${additions.length} items from this device to your account.`);
+    } catch (error) {
+      setFileMessage(
+        error instanceof Error
+          ? `Could not copy this device's list: ${error.message}`
+          : "Could not copy this device's list.",
       );
     } finally {
       setIsImporting(false);
@@ -538,8 +1036,64 @@ export default function Home() {
             </h1>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-[#52677d]">
               Add links, photos, notes, and the day you saved each idea. When
-              family asks what to get you, send them the cozy read-only list.
+              family asks what to get you, send them a live list that updates as gifts are bought.
             </p>
+            {!isSharedView && (
+              <div className="mt-6 rounded-[1.5rem] border border-white/80 bg-[#f8fbff]/85 p-5 shadow-sm shadow-[#476587]/10">
+                {!supabase ? (
+                  <p className="text-sm leading-6 text-[#52677d]">
+                    Account sync is not configured yet. Add the Supabase URL and
+                    anon key from <code>.env.local</code> after setting up the
+                    project to enable sign-in and live lists.
+                  </p>
+                ) : !authReady ? (
+                  <p className="text-sm text-[#52677d]">Checking your account...</p>
+                ) : session ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-[#52677d]">
+                      Signed in as <span className="font-semibold">{session.user.email}</span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void signOut()}
+                      className="rounded-full border border-[#bdd3eb] bg-white px-4 py-2 text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff]"
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={sendSignInLink} className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                    <label className="grid gap-2 text-sm font-semibold text-[#344b63]">
+                      Sign in or create your account
+                      <input
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(event) => setEmail(event.target.value)}
+                        placeholder="you@example.com"
+                        className="rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 font-normal outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      disabled={isSendingSignIn}
+                      className="self-end rounded-full bg-[#5b8cc5] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#4f7fb5] disabled:opacity-50"
+                    >
+                      {isSendingSignIn ? "Sending..." : "Email me a sign-in link"}
+                    </button>
+                  </form>
+                )}
+                <p role="status" className="mt-3 text-sm leading-6 text-[#37618f]">
+                  {accountMessage}
+                </p>
+                {session && (
+                  <p className="mt-2 text-xs leading-5 text-[#52677d]">
+                    Your account list syncs across devices. Gift reservations are
+                    hidden from your signed-in owner view.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="rounded-[1.5rem] bg-[#f8fbff] p-5 shadow-inner shadow-[#b9d4f2]/30">
@@ -548,18 +1102,28 @@ export default function Home() {
             </p>
             <p className="mt-3 text-3xl font-semibold">{visibleItems.length}</p>
             <p className="mt-2 text-sm leading-6 text-[#52677d]">
-              {shareItems
-                ? "You are viewing a shared list. Click Buy to open the item."
-                : "Copy a share link so family can browse and buy from your list."}
+              {isSharedView
+                ? "Browse the list and mark a gift bought to help avoid duplicates."
+                : isCloudAccount
+                  ? "Your live list stays current. Guests can mark gifts bought without revealing who did it."
+                  : "Sign in to create a live list. Snapshot sharing is still available on this device."}
             </p>
-            {!shareItems && (
+            {isSharedView && isLoadingLiveShare && (
+              <p className="mt-3 text-sm text-[#52677d]">Loading the latest list...</p>
+            )}
+            {!isSharedView && (
               <div className="mt-5 grid gap-3">
                 <button
                   type="button"
                   onClick={copyShareLink}
+                  disabled={isCloudAccount && !shareToken}
                   className="w-full rounded-full bg-[#172033] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#172033]/20 transition hover:-translate-y-0.5 hover:bg-[#284b78]"
                 >
-                  {shareCopied ? "Copied link" : "Copy family share link"}
+                  {shareCopied
+                    ? "Copied link"
+                    : isCloudAccount
+                      ? "Copy live family link"
+                      : "Copy snapshot share link"}
                 </button>
                 <div className="grid grid-cols-2 gap-3">
                   <button
@@ -588,9 +1152,19 @@ export default function Home() {
                   className="hidden"
                 />
                 <p className="text-xs leading-5 text-[#52677d]">
-                  Export all items as a file to send or keep. Import adds missing
-                  items without replacing your list.
+                  The HTML download is a static backup. Live links reflect changes
+                  and guest gift reservations. Import adds missing items.
                 </p>
+                {isCloudAccount && (
+                  <button
+                    type="button"
+                    onClick={() => void importThisDevice()}
+                    disabled={!wishlistId || isImporting}
+                    className="rounded-full border border-[#bdd3eb] bg-white px-4 py-3 text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] disabled:opacity-50"
+                  >
+                    Copy this device&apos;s list to my account
+                  </button>
+                )}
                 <p role="status" className="text-sm leading-6 text-[#37618f]">
                   {fileMessage}
                 </p>
@@ -599,7 +1173,7 @@ export default function Home() {
           </div>
         </header>
 
-        {!shareItems && (
+        {!isSharedView && (
           <section className="relative z-10 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
             <form
               ref={formRef}
@@ -809,7 +1383,11 @@ export default function Home() {
                     "Save it",
                     "Paste the link and the app will try to grab the name and photo.",
                   ],
-                  ["3", "Share it", "Send family the read-only link so they can click Buy."],
+                  [
+                    "3",
+                    "Share it",
+                    "Send the live link so family can browse and mark gifts bought.",
+                  ],
                 ].map(([step, title, copy]) => (
                   <div
                     key={step}
@@ -831,11 +1409,11 @@ export default function Home() {
           <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#4f7fb5]">
-                {shareItems ? "Shared birthday list" : "Your saved finds"}
+                {isSharedView ? "Shared birthday list" : "Your saved finds"}
               </p>
               <h2 className="mt-2 text-3xl font-semibold">Wishlist board</h2>
             </div>
-            {shareItems && (
+            {isSharedView && (
               <Link
                 href="/"
                 className="rounded-full border border-[#bdd3eb] bg-white/70 px-5 py-3 text-sm font-semibold text-[#344b63] transition hover:bg-white"
@@ -848,13 +1426,26 @@ export default function Home() {
           <p role="status" className="text-sm leading-6 text-[#37618f]">
             {itemActionMessage}
           </p>
+          {isSharedView && supabase && !authReady && (
+            <p className="rounded-2xl bg-white/70 p-5 text-sm leading-6 text-[#52677d]">
+              Checking for the latest list...
+            </p>
+          )}
+          {isSharedView && authReady && !isLoadingLiveShare && visibleItems.length === 0 && (
+            <p className="rounded-2xl bg-white/70 p-5 text-sm leading-6 text-[#52677d]">
+              {itemActionMessage ||
+                (!supabase && !localShareItems
+                  ? "This live list needs the account service configured before it can load."
+                  : "This wishlist is empty or could not be found.")}
+            </p>
+          )}
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {visibleItems.map((item) => (
               <article
                 key={item.id}
                 className="group relative overflow-hidden rounded-[2rem] border border-white/80 bg-[#f8fbff] shadow-xl shadow-[#476587]/10 transition hover:-translate-y-1"
               >
-                {!shareItems && (
+                {!isSharedView && (
                   <div
                     ref={openItemMenuId === item.id ? itemMenuRef : undefined}
                     className="absolute right-4 top-4 z-10"
@@ -954,8 +1545,26 @@ export default function Home() {
                       rel="noreferrer"
                       className="rounded-full bg-[#172033] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#284b78]"
                     >
-                      Buy / view item
+                      {liveShareItems?.reservedIds.has(item.id) ? "View item" : "Buy / view item"}
                     </a>
+                    {isSharedView &&
+                      liveShareItems &&
+                      (!session || (shareToken !== null && !isOwnerShare)) && (
+                      <button
+                        type="button"
+                        disabled={
+                          liveShareItems.reservedIds.has(item.id) || isReserving === item.id
+                        }
+                        onClick={() => void markAsBought(item.id)}
+                        className="rounded-full border border-[#bdd3eb] bg-white px-5 py-3 text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        {liveShareItems.reservedIds.has(item.id)
+                          ? "Already marked bought"
+                          : isReserving === item.id
+                            ? "Saving..."
+                            : "Mark as bought"}
+                      </button>
+                    )}
                   </div>
                 </div>
               </article>
