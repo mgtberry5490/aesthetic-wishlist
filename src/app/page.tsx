@@ -267,6 +267,8 @@ export default function Home() {
   const [wishlistId, setWishlistId] = useState<string | null>(null);
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authMode, setAuthMode] = useState<"sign_in" | "sign_up">("sign_in");
   const [accountMessage, setAccountMessage] = useState("");
   const [isSendingSignIn, setIsSendingSignIn] = useState(false);
   const [isReserving, setIsReserving] = useState<string | null>(null);
@@ -780,7 +782,7 @@ export default function Home() {
     }
   };
 
-  const sendSignInLink = async (event: FormEvent<HTMLFormElement>) => {
+  const authenticateWithPassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!supabase) {
       setAccountMessage("Add the Supabase environment variables to enable account sign-in.");
@@ -790,20 +792,34 @@ export default function Home() {
     setIsSendingSignIn(true);
     setAccountMessage("");
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email: email.trim(),
-        options: { emailRedirectTo: window.location.origin },
-      });
-      setAccountMessage(
-        error
-          ? `Could not send your sign-in link: ${error.message}`
-          : "Check your email for a secure sign-in link.",
-      );
+      if (authMode === "sign_up") {
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+        });
+        if (error) {
+          setAccountMessage(`Could not create your account: ${error.message}`);
+        } else if (!data.session) {
+          setAccountMessage(
+            "Email confirmation is enabled in Supabase. Turn off Confirm email under Authentication → Providers → Email to use password sign-up without sending email.",
+          );
+        } else {
+          setAccountMessage("Account created. You are signed in.");
+        }
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        setAccountMessage(
+          error ? `Could not sign in: ${error.message}` : "You are signed in.",
+        );
+      }
     } catch (error) {
       setAccountMessage(
         error instanceof Error
-          ? `Could not send your sign-in link: ${error.message}`
-          : "Could not send your sign-in link.",
+          ? `Could not ${authMode === "sign_up" ? "create your account" : "sign in"}: ${error.message}`
+          : `Could not ${authMode === "sign_up" ? "create your account" : "sign in"}.`,
       );
     } finally {
       setIsSendingSignIn(false);
@@ -1062,9 +1078,12 @@ export default function Home() {
                     </button>
                   </div>
                 ) : (
-                  <form onSubmit={sendSignInLink} className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                  <form
+                    onSubmit={authenticateWithPassword}
+                    className="grid gap-3 sm:grid-cols-[1fr_auto]"
+                  >
                     <label className="grid gap-2 text-sm font-semibold text-[#344b63]">
-                      Sign in or create your account
+                      Email
                       <input
                         type="email"
                         required
@@ -1074,12 +1093,42 @@ export default function Home() {
                         className="rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 font-normal outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
                       />
                     </label>
+                    <label className="grid gap-2 text-sm font-semibold text-[#344b63]">
+                      Password
+                      <input
+                        type="password"
+                        required
+                        minLength={8}
+                        autoComplete={authMode === "sign_up" ? "new-password" : "current-password"}
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                        placeholder="At least 8 characters"
+                        className="rounded-2xl border border-[#c9dcef] bg-white px-4 py-3 font-normal outline-none transition focus:border-[#5b8cc5] focus:ring-4 focus:ring-[#bcdcff]/40"
+                      />
+                    </label>
                     <button
                       type="submit"
                       disabled={isSendingSignIn}
-                      className="self-end rounded-full bg-[#5b8cc5] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#4f7fb5] disabled:opacity-50"
+                      className="rounded-full bg-[#5b8cc5] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#4f7fb5] disabled:opacity-50 sm:col-span-2"
                     >
-                      {isSendingSignIn ? "Sending..." : "Email me a sign-in link"}
+                      {isSendingSignIn
+                        ? "Please wait..."
+                        : authMode === "sign_up"
+                          ? "Create account"
+                          : "Sign in"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isSendingSignIn}
+                      onClick={() => {
+                        setAuthMode((mode) => mode === "sign_in" ? "sign_up" : "sign_in");
+                        setAccountMessage("");
+                      }}
+                      className="text-sm font-semibold text-[#37618f] underline-offset-4 hover:underline sm:col-span-2"
+                    >
+                      {authMode === "sign_up"
+                        ? "Already have an account? Sign in"
+                        : "New here? Create an account"}
                     </button>
                   </form>
                 )}
@@ -1089,7 +1138,14 @@ export default function Home() {
                 {session && (
                   <p className="mt-2 text-xs leading-5 text-[#52677d]">
                     Your account list syncs across devices. Gift reservations are
-                    hidden from your signed-in owner view.
+                    hidden from your signed-in owner view. You stay signed in on
+                    this device until you sign out.
+                  </p>
+                )}
+                {!session && supabase && authReady && (
+                  <p className="mt-2 text-xs leading-5 text-[#52677d]">
+                    Your password is stored securely by Supabase. Your sign-in
+                    stays remembered on this device until you sign out.
                   </p>
                 )}
               </div>

@@ -24,7 +24,7 @@ Lists can stay local in the browser or sync to an account through Supabase.
 - Set a star priority: 1 star for `Just browsing`, 2 for `Would be nice`, or 3 for `Love this`.
 - See priorities on cards, the live preview, family share links, and HTML exports. Older items default to 1 star until you change them.
 - Use the three-dot menu on a card to copy its product link, edit it, change its status, or remove it.
-- Sign in with an emailed link to sync a wishlist across devices.
+- Sign in with an email and password to sync a wishlist across devices. The session is remembered on the current device until sign-out.
 - Copy a live family link that reflects list changes and guest gift reservations.
 - Let guests mark an item as bought without signing in or identifying themselves. The signed-in owner dashboard does not show reservations.
 - Export the full list as a standalone HTML snapshot to send or keep as a backup.
@@ -104,11 +104,12 @@ Export/import checks can also be run with `npm test`.
 
 ## Account sync and live sharing
 
-1. Create a Supabase project and enable email sign-in.
+1. Create a Supabase project and enable the Email provider for password sign-in.
 2. Run [`supabase/migrations/20261109000000_cloud_wishlists.sql`](./supabase/migrations/20261109000000_cloud_wishlists.sql) in the Supabase SQL Editor.
 3. Copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` from the project API settings.
 4. In Supabase Auth URL Configuration, set the site URL to your app URL and allow the local and deployed redirect URLs.
-5. Restart the Next.js dev server and sign in using the emailed link.
+5. In Authentication provider settings for Email, turn off **Confirm email** to create accounts without sending email. This allows unverified email addresses, so use a strong unique password.
+6. Restart the Next.js dev server, create an account with an email and password, and sign in. Supabase remembers the session on that browser/device until sign-out.
 
 Only the public anon key belongs in `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Never put a Supabase service-role key in the browser or a `NEXT_PUBLIC_` variable.
 
