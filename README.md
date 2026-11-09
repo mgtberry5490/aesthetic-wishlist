@@ -22,13 +22,12 @@ Lists can stay local in the browser or sync to an account through Supabase.
 - Remove items from your personal list.
 - Edit saved item names, links, photos, notes, and statuses without changing their original date added.
 - Set a star priority: 1 star for `Just browsing`, 2 for `Would be nice`, or 3 for `Love this`.
-- See priorities on cards, the live preview, family share links, and HTML exports. Older items default to 1 star until you change them.
+- See priorities on cards, the live preview, and family share links. Older items default to 1 star until you change them.
 - Use the three-dot menu on a card to copy its product link, edit it, change its status, or remove it.
 - Sign in with an email and password to sync a wishlist across devices. The session is remembered on the current device until sign-out.
 - Copy a live family link that reflects list changes and guest gift reservations.
 - Let guests mark an item as bought without signing in or identifying themselves. The signed-in owner dashboard does not show reservations.
-- Export the full list as a standalone HTML snapshot to send or keep as a backup.
-- Import an exported HTML file to add missing items without replacing existing items.
+- Import a previously exported HTML file to add missing items without replacing existing items.
 - Family can click **Buy / view item** to open the original product page or mark the gift as bought.
 - Shared links exclude items marked `No longer want`.
 - Preview the wishlist card live before saving it.\n- Open the compact **How it works** modal from the add-item form.
@@ -117,18 +116,13 @@ After signing in, use **Copy this device's list to my account** to copy existing
 
 Share **Copy live family link** for an updating list. Visitors do not need an account. Reservations are stored separately from wishlist item status, do not include a buyer identity, and are not readable through the owner's account policies. The owner dashboard continues to show the original wishlist status. Anyone opening the public guest link can see which items have been marked bought; use the signed-in dashboard to view the list privately.
 
-## HTML export and import
+## Import an older HTML backup
 
-Use **Export HTML** in the Family mode panel to download a readable static snapshot
-of your entire list, including items marked `No longer want`. It does not update
-after download and does not include live gift reservations. Share the live family
-link when recipients should see updates and mark items bought. Photos still need
-an internet connection.
-
-Use **Import HTML** in the app to choose a previously exported file. Missing items
-are added with their original notes, dates, and statuses. Items with IDs already
-on your list are skipped, preserving your local edits. Importing the same file
-again will not add duplicates. Only this app's exported HTML format is supported.
+Use **Import HTML** to choose a wishlist file exported by an earlier version of
+the app. Missing items are added with their original notes, dates, and statuses.
+Items with IDs already on your list are skipped, preserving your local edits.
+Importing the same file again will not add duplicates. New lists should be shared
+with a live family link.
 
 ## Important notes for future AI sessions
 

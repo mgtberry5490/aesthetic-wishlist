@@ -11,7 +11,6 @@ import {
 } from "react";
 import Link from "next/link";
 import {
-  buildWishlistHtml,
   getPriorityOption,
   mergeWishlistItems,
   parseWishlistData,
@@ -914,25 +913,6 @@ export default function Home() {
     }
   };
 
-  const exportHtml = () => {
-    try {
-      const blob = new Blob([buildWishlistHtml(items)], {
-        type: "text/html;charset=utf-8",
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `wishlist-${new Date().toISOString().slice(0, 10)}.html`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setFileMessage("HTML exported with all items, including those marked No longer want.");
-    } catch {
-      setFileMessage("Could not export your list. Please try again.");
-    }
-  };
-
   const importHtml = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -1078,15 +1058,27 @@ export default function Home() {
                     </button>
                   </div>
                 ) : (
-                  <form
-                    onSubmit={authenticateWithPassword}
-                    className="grid gap-3 sm:grid-cols-[1fr_auto]"
-                  >
+                  <>
+                    <div className="mb-4">
+                      <p className="text-sm font-semibold text-[#344b63]">
+                        {authMode === "sign_up" ? "Create your account" : "Welcome back"}
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-[#6a7f95]">
+                        {authMode === "sign_up"
+                          ? "Save your list securely and pick up on any device."
+                          : "Sign in to pick up where you left off."}
+                      </p>
+                    </div>
+                    <form
+                      onSubmit={authenticateWithPassword}
+                      className="grid gap-3 sm:grid-cols-2"
+                    >
                     <label className="grid gap-2 text-sm font-semibold text-[#344b63]">
                       Email
                       <input
                         type="email"
                         required
+                        autoComplete="email"
                         value={email}
                         onChange={(event) => setEmail(event.target.value)}
                         placeholder="you@example.com"
@@ -1109,7 +1101,7 @@ export default function Home() {
                     <button
                       type="submit"
                       disabled={isSendingSignIn}
-                      className="rounded-full bg-[#5b8cc5] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#4f7fb5] disabled:opacity-50 sm:col-span-2"
+                      className="rounded-full bg-[#5b8cc5] px-5 py-3 text-sm font-semibold text-white shadow-md shadow-[#5b8cc5]/20 transition hover:-translate-y-0.5 hover:bg-[#4f7fb5] disabled:opacity-50 sm:col-span-2"
                     >
                       {isSendingSignIn
                         ? "Please wait..."
@@ -1130,7 +1122,8 @@ export default function Home() {
                         ? "Already have an account? Sign in"
                         : "New here? Create an account"}
                     </button>
-                  </form>
+                    </form>
+                  </>
                 )}
                 <p role="status" className="mt-3 text-sm leading-6 text-[#37618f]">
                   {accountMessage}
@@ -1152,11 +1145,19 @@ export default function Home() {
             )}
           </div>
 
-          <div className="rounded-[1.5rem] bg-[#f8fbff] p-5 shadow-inner shadow-[#b9d4f2]/30">
-            <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#5f83aa]">
-              Family mode
+          <div className="flex flex-col rounded-[1.5rem] border border-white/80 bg-[#f8fbff]/90 p-5 shadow-inner shadow-[#b9d4f2]/30 md:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#5f83aa]">
+                {isSharedView ? "Family mode" : "Your sharing link"}
+              </p>
+              <span className="rounded-full bg-[#e6f0fb] px-3 py-1 text-xs font-semibold text-[#36516b]">
+                {isSharedView ? "Live list" : isCloudAccount ? "Synced" : "On this device"}
+              </span>
+            </div>
+            <p className="mt-4 text-4xl font-semibold tracking-tight">{visibleItems.length}</p>
+            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-[#6a7f95]">
+              {visibleItems.length === 1 ? "saved find" : "saved finds"}
             </p>
-            <p className="mt-3 text-3xl font-semibold">{visibleItems.length}</p>
             <p className="mt-2 text-sm leading-6 text-[#52677d]">
               {isSharedView
                 ? "Browse the list and mark a gift bought to help avoid duplicates."
@@ -1173,7 +1174,7 @@ export default function Home() {
                   type="button"
                   onClick={copyShareLink}
                   disabled={isCloudAccount && !shareToken}
-                  className="w-full rounded-full bg-[#172033] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#172033]/20 transition hover:-translate-y-0.5 hover:bg-[#284b78]"
+                  className="w-full rounded-full bg-[#172033] px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-[#172033]/20 transition hover:-translate-y-0.5 hover:bg-[#284b78] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {shareCopied
                     ? "Copied link"
@@ -1181,15 +1182,7 @@ export default function Home() {
                       ? "Copy live family link"
                       : "Copy snapshot share link"}
                 </button>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={exportHtml}
-                    disabled={!isBrowserReady || isImporting}
-                    className="rounded-full border border-[#bdd3eb] bg-white px-4 py-3 text-sm font-semibold text-[#344b63] transition hover:bg-[#e8f2ff] disabled:opacity-50"
-                  >
-                    Export HTML
-                  </button>
+                <div className="grid grid-cols-1 gap-3">
                   <button
                     type="button"
                     onClick={() => importInputRef.current?.click()}
@@ -1208,8 +1201,9 @@ export default function Home() {
                   className="hidden"
                 />
                 <p className="text-xs leading-5 text-[#52677d]">
-                  The HTML download is a static backup. Live links reflect changes
-                  and guest gift reservations. Import adds missing items.
+                  {isCloudAccount
+                    ? "Your live link stays up to date. Guests can mark gifts bought without revealing who."
+                    : "This link is a snapshot for now. Sign in to create a live list guests can update."}
                 </p>
                 {isCloudAccount && (
                   <button
