@@ -2,7 +2,7 @@ export const gridColumnsStorageKey = "wishful-grid-columns";
 export const gridColumnsChangeEvent = "wishful-grid-columns-change";
 export const gridColumnOptions = [2, 4, 6, 8] as const;
 export type GridColumns = (typeof gridColumnOptions)[number];
-const defaultGridColumns: GridColumns = 4;
+const defaultGridColumns = "default";
 
 export function getGridColumnsSnapshot(): string {
   try {
@@ -16,7 +16,7 @@ export function getGridColumnsSnapshot(): string {
 }
 
 export function getServerGridColumnsSnapshot() {
-  return String(defaultGridColumns);
+  return defaultGridColumns;
 }
 
 export function subscribeToGridColumns(callback: () => void) {

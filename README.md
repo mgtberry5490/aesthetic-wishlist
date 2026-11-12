@@ -13,7 +13,9 @@ Lists can stay local in the browser or sync to an account through Supabase.
   - notes
   - status
   - automatic date added
-- See items as aesthetic cards with large product photos.
+- See wishlist cards in a saved 2, 4, 6, or 8-column grid on phones and larger
+  screens. Compact tiles prioritize the photo or item name and link directly to
+  the product; use **Details** to expand notes, date, status, and priority.
 - Change an item status:
   - `Thinking about it`
   - `Still want`
@@ -25,16 +27,19 @@ Lists can stay local in the browser or sync to an account through Supabase.
 - See priorities on cards, the live preview, and family share links. Older items default to 1 star until you change them.
 - Use the three-dot menu on a card to copy its product link, edit it, change its status, or remove it.
 - Sign in with an email and password to sync a wishlist across devices. The session is remembered on the current device until sign-out.
-- Open the settings gear while signed in to change the theme or accent color and sign out.
-- Choose 2, 4, 6, or 8 wishlist cards across on wide screens; the layout adapts on smaller screens.
+- Open Settings from the gear button to change the theme or accent color, import
+  an HTML backup, or sign out when signed in.
+- By default, wishlist cards show 2 columns on smaller screens and 4 on larger
+  screens. Choose 2, 4, 6, or 8 in Settings to keep that count on every screen.
 - Copy a live family link that reflects list changes and guest gift reservations.
 - Let guests mark an item as bought without signing in or identifying themselves. The signed-in owner dashboard does not show reservations.
-- Import a previously exported HTML file to add missing items without replacing existing items.
+- Import a previously exported HTML file from Settings to add missing items
+  without replacing existing items.
 - Family can click **Buy / view item** to open the original product page or mark the gift as bought.
 - Shared links exclude items marked `No longer want`.
 - Preview the wishlist card live before saving it.
 - Open the compact **How it works** modal from the add-item form.
-- Switch between light and dark appearance, and choose a saved accent color from Settings while signed in.
+- Switch between light and dark appearance, and choose a saved accent color from Settings.
 - Use the simplified **My list / Add a find** navigation on mobile; the live
   preview stays hidden on small screens to keep the form focused.
 - Collapse or expand the introduction beneath **Good finds. Shared joy.**
